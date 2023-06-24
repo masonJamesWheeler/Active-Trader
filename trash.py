@@ -45,7 +45,6 @@ response = requests.get(base_url, params=params)
 # Check if the request was successful
 if response.status_code == 200:
     df_total = pd.read_csv(StringIO(response.text))
-    # df_total['time'] = df_total['time'].str.slice(0, -3)  # Remove seconds from timestamps
 else:
     print(f'Request failed with status code: {response.status_code}')
 
