@@ -37,33 +37,25 @@ years = 2
 months = 12
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+                        ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward', 'next_hidden_state1', 'next_hidden_state2'))
 
 
 class DQN(nn.Module):
-    def __init__(self, num_features, num_actions, stack_size):
+    def __init__(self, input_size, hidden_size, num_actions):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(stack_size, 32, kernel_size=3, stride=1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.bn3 = nn.BatchNorm2d(64)
+        self.hidden_size = hidden_size
+        self.gru1 = nn.GRU(input_size, hidden_size, batch_first=True)
+        self.gru2 = nn.GRU(hidden_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, num_actions)
 
-        def conv2d_size_out(size, kernel_size=3, stride=1):
-            return (size - (kernel_size - 1) - 1) // stride + 1
+    def forward(self, x, hidden_state1, hidden_state2):
+        x, hidden_state1 = self.gru1(x, hidden_state1)
+        x, hidden_state2 = self.gru2(x, hidden_state2)
+        x = self.fc(hidden_state2[-1])  # Using the last hidden state of the second GRU
+        return x, hidden_state1, hidden_state2
 
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(window_size)))
-        convf = conv2d_size_out(conv2d_size_out(conv2d_size_out(num_features)))
-
-        linear_input_size = convw * convf * 64
-        self.head = nn.Linear(linear_input_size, num_actions)
-
-    def forward(self, x):
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        return self.head(x.view(x.size(0), -1))
+    def init_hidden(self, batch_size):
+        return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
 
 # Data is shaped [num_windows, window_size, num_features]
 data = get_and_process_data(tickers, interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
@@ -76,20 +68,23 @@ def initialize():
     starting_cash = 10000
     starting_shares = 100
     window_size = 30
-    stack_size = 4
     price_column = 3
     feature_size = 20
-    last_state = torch.zeros((1, stack_size, window_size, feature_size), dtype=torch.float32).to('cpu')
-
-    env = StockEnvironment(starting_cash, starting_shares, data, window_size, feature_size, stack_size, price_column)
-    memoryReplay = ReplayMemory(100000)
+    window_size = 30
+    hidden_size = 128
     num_actions = 11
-    Q_network = DQN(num_features=feature_size, num_actions= num_actions, stack_size= stack_size)
-    target_network = DQN(num_features=feature_size, num_actions= num_actions, stack_size= stack_size)
+    #Data size is [1, stack_size, window_size, feature_size]
+
+    env = StockEnvironment(starting_cash, starting_shares, data, window_size, feature_size, price_column)
+    memoryReplay = ReplayMemory(100000)
+    Q_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions)
+    target_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions)
     target_network.load_state_dict(Q_network.state_dict())
     optimizer = optim.Adam(Q_network.parameters())
 
-    return env, memoryReplay, num_actions, Q_network, target_network, optimizer
+    hidden_state1, hidden_state2 = Q_network.init_hidden(1)
+
+    return env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2
 
 
 def epsilon_decay(steps_done, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=500):
@@ -98,8 +93,7 @@ def epsilon_decay(steps_done, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay
     """
     return epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1. * steps_done / epsilon_decay)
 
-
-def execute_action(state, steps_done, num_actions, Q_network):
+def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions, Q_network):
     """
     Execute action based on epsilon-greedy policy.
     """
@@ -107,12 +101,9 @@ def execute_action(state, steps_done, num_actions, Q_network):
         action = np.random.randint(num_actions)
     else:
         with torch.no_grad():
-            if len(state.shape) == 3:
-                state = torch.tensor(state).unsqueeze(0)
-            Q_values = Q_network(state)
+            Q_values, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
             action = torch.argmax(Q_values).item()
-    return action
-
+    return action, hidden_state1, hidden_state2
 
 def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
     """
@@ -122,9 +113,18 @@ def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
     action_batch = torch.tensor(batch.action)
     reward_batch = torch.tensor(batch.reward)
     next_state_batch = torch.cat(batch.next_state)
+    hidden_state1_batch = torch.stack(batch.hidden_state1)
+    hidden_state2_batch = torch.stack(batch.hidden_state2)
+    next_hidden_state1_batch = torch.stack(batch.next_hidden_state1)
+    next_hidden_state2_batch = torch.stack(batch.next_hidden_state2)
 
-    current_Q_values = Q_network(state_batch).gather(1, action_batch.view(-1, 1)).squeeze()
-    next_Q_values = target_network(next_state_batch).max(1)[0].detach()
+    print(state_batch.shape)
+    current_Q_values, _, _ = Q_network(state_batch, hidden_state1_batch, hidden_state2_batch)
+    current_Q_values = current_Q_values.gather(1, action_batch.view(-1, 1)).squeeze()
+    
+    next_Q_values, _, _ = target_network(next_state_batch, next_hidden_state1_batch, next_hidden_state2_batch)
+    next_Q_values = next_Q_values.max(1)[0].detach()
+    
     target_Q_values = reward_batch + (gamma * next_Q_values)
     loss = F.smooth_l1_loss(current_Q_values, target_Q_values)
 
@@ -133,27 +133,25 @@ def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
     optimizer.step()
 
 
+
 def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128):
     """
     Run the main loop of DQN training.
     """
-    env, memoryReplay, num_actions, Q_network, target_network, optimizer = initialize()
+    env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize()
     steps_done = 0
     for episode in range(num_episodes):
         state = env.reset()
-        if len(state.shape) == 3:
-            state = torch.tensor(state).unsqueeze(0)
+        print(state.shape)
+        hidden_state1, hidden_state2 = Q_network.init_hidden(1)
         done = False
         while not done:
             steps_done += 1
-            action = execute_action(state, steps_done, num_actions, Q_network)
+            action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions, Q_network)
             next_state, reward, done = env.step(action)
+            print(next_state.shape)
             env.render()
-
-            if len(next_state.shape) == 3:
-                next_state = torch.tensor(next_state).unsqueeze(0)
-
-            memoryReplay.push((state, action, next_state, reward))
+            memoryReplay.push((state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
 
             if len(memoryReplay) >= BATCH_SIZE:
                 transitions = memoryReplay.sample(BATCH_SIZE)
@@ -164,6 +162,7 @@ def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128):
                 target_network.load_state_dict(Q_network.state_dict())
 
             state = next_state
+
 
 
 if __name__ == "__main__":

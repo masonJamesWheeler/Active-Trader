@@ -9,9 +9,9 @@ import torch
 
 
 class StockEnvironment:
-    def __init__(self, starting_cash, starting_shares, data, window_size, feature_size, stack_size, price_column):
+    def __init__(self, starting_cash, starting_shares, data, window_size, feature_size, price_column):
         self.action_space = list(range(11))  # 11 actions, from 0 to 10
-        self.observation_space = torch.zeros((stack_size, window_size, feature_size), dtype=torch.float32).to('cpu') # Modify for your device, i.e., use 'cuda' for GPU
+        self.observation_space = torch.zeros((window_size, feature_size), dtype=torch.float32).to('cpu') # Modify for your device, i.e., use 'cuda' for GPU
 
         self.episode_ended = False
         self.starting_cash = starting_cash
@@ -19,7 +19,6 @@ class StockEnvironment:
         self.data = data
         self.window_size = window_size
         self.feature_size = feature_size
-        self.stack_size = stack_size
         self.price_column = price_column
         self.current_step = 0
         self.current_price = 0
@@ -28,7 +27,6 @@ class StockEnvironment:
         self.current_portfolio_value = starting_cash
         self.current_portfolio_value_history = []
         self.current_portfolio_value_history.append(starting_cash)
-        self.stacked_frames = deque(maxlen=stack_size)
         self.batch_size = 32
         self.current_time_step_value = data[self.current_step]
 
@@ -158,11 +156,17 @@ class StockEnvironment:
         # calculate the reward as the squared difference between the new portfolio value and the old one while keeping the sign
         sign = 1 if self.get_current_portfolio_value() >= initial_portfolio_value else -1
         reward = ((self.get_current_portfolio_value() - initial_portfolio_value)**2) * sign
-        new_state = torch.tensor(self.get_stacked_frames(), dtype=torch.float32).to('cpu')
+        new_state = torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
         # done to tensor
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
 
         return new_state, reward, done
+    
+    def get_current_state(self):
+        state = np.array(self.data[self.current_step])
+        state = torch.tensor(state, dtype=torch.float32).to('cpu')
+        state = state.unsqueeze(0)
+        return state
 
     def reset(self):
         self._episode_ended = False
@@ -171,23 +175,11 @@ class StockEnvironment:
         self.current_shares = self.starting_shares
         self.current_portfolio_value_history = []
         self.current_portfolio_value_history.append(self.starting_cash)
-        self.stacked_frames = deque([], maxlen=self.stack_size)
         self.current_price = self.get_current_price()
-        return torch.tensor(self.get_stacked_frames(), dtype=torch.float32).to('cpu')
-
-    def get_stacked_frames(self):
-        for i in range(self.stack_size):
-            index = self.current_step - self.window_size * i
-            if index < 0:
-                self.stacked_frames.append(torch.zeros(self.data.shape[1], self.data.shape[2]))
-            else:
-                self.stacked_frames.append(torch.from_numpy(self.data[index]))
-        stacked_frames = list(self.stacked_frames)
-        # add a dimension to each frame
-        return torch.stack(stacked_frames).to('cpu')
+        return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
     def get_current_time_step(self):
-        observation = self.get_stacked_frames()
+        observation = self.get_current_state()
         return {'observation': observation, 'reward': 0.0, 'discount': 1.0}  # changed from ts.transition to a dict
 
     def render(self):
