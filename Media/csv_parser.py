@@ -30,7 +30,6 @@ def process_trial_files(directory):
 
     return csv_data
 
-
 def write_to_csv(csv_data, output_file):
     if not csv_data:
         print('No data to write.')
@@ -48,7 +47,7 @@ def write_to_csv(csv_data, output_file):
 
 
 # process the trial files
-csv_data = process_trial_files('my_dir/Stock_Trading_dense')
+csv_data = process_trial_files('../my_dir/Stock_Trading_lstm')
 
 # write the data to CSV
-write_to_csv(csv_data, 'output.csv')
+write_to_csv(csv_data, 'lstm_training.csv')

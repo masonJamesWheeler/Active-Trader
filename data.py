@@ -13,6 +13,11 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow import keras
 from keras.utils import to_categorical
 from datetime import datetime
+from alpha_vantage.timeseries import TimeSeries
+from alpha_vantage.techindicators import TechIndicators
+
+ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
+ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
 
 
 # Alpha Vantage Base URL
@@ -49,45 +54,53 @@ def create_windows(data, length):
     assert len(windows) == len(data) - length
     return windows
 
+# IMPLEMENTATION FOR TIME_SERIES_INTRADAY_EXTENDED
+# def get_stock_data(symbol, interval, api_key, years=2, months=12):
+    # # Empty DataFrame to hold all data
+    # df_total = pd.DataFrame()
+    #
+    # for year in range(years, 0, -1):  # Two years = 2
+    #     for month in range(months, 0, -1):  # Each year = 12 months
+    #         slice = 'year' + str(year) + 'month' + str(month)
+    #
+    #         # Define API parameters
+    #         params = {
+    #             'function': 'TIME_SERIES_INTRADAY_EXTENDED',
+    #             'symbol': symbol,
+    #             'interval': interval,
+    #             'slice': slice,
+    #             'apikey': api_key,
+    #             'adjusted': 'true',
+    #             'datatype': 'csv'  # We want to receive the data in CSV format
+    #         }
+    #
+    #         # Make the API request
+    #         response = requests.get(base_url, params=params)
+    #
+    #         # Check if the request was successful
+    #         if response.status_code == 200:
+    #             df_slice = pd.read_csv(StringIO(response.text))
+    #             df_slice['time'] = df_slice['time'].str.slice(0, -3)  # Remove seconds from timestamps
+    #             df_total = pd.concat([df_total, df_slice])
+    #         else:
+    #             print(f'Request failed for slice: {slice}')
+    #
+    # # Reset index of the final dataframe
+    # df_total.reset_index(drop=True, inplace=True)
+    # return data
 
-def get_stock_data(symbol, interval, api_key, years=2, months=12):
-    # Empty DataFrame to hold all data
-    df_total = pd.DataFrame()
+def get_stock_data(symbol, interval):
+    # Alpha Vantage Base URL
+    stock_df, metadata = ts.get_intraday(symbol=symbol, interval=interval, outputsize='full')
+    # remove the numbers from the column names, i.e 1. open -> open
+    stock_df = pd.DataFrame(stock_df)
+    stock_df.columns = [col.split(' ')[1] for col in stock_df.columns]
 
-    for year in range(years, 0, -1):  # Two years = 2
-        for month in range(months, 0, -1):  # Each year = 12 months
-            slice = 'year' + str(year) + 'month' + str(month)
-
-            # Define API parameters
-            params = {
-                'function': 'TIME_SERIES_INTRADAY_EXTENDED',
-                'symbol': symbol,
-                'interval': interval,
-                'slice': slice,
-                'apikey': api_key,
-                'adjusted': 'true',
-                'datatype': 'csv'  # We want to receive the data in CSV format
-            }
-
-            # Make the API request
-            response = requests.get(base_url, params=params)
-
-            # Check if the request was successful
-            if response.status_code == 200:
-                df_slice = pd.read_csv(StringIO(response.text))
-                df_slice['time'] = df_slice['time'].str.slice(0, -3)  # Remove seconds from timestamps
-                df_total = pd.concat([df_total, df_slice])
-            else:
-                print(f'Request failed for slice: {slice}')
-
-    # Reset index of the final dataframe
-    df_total.reset_index(drop=True, inplace=True)
-
-    return df_total
+    return stock_df
 
 
 def get_all_data(symbol, interval, api_key, window_size):
-    df_stock = get_stock_data(symbol, interval, api_key)
+    df_stock = get_stock_data(symbol, interval)
 
     # Calculate SMA, EMA and RSI
     df_stock['smawindow'] = df_stock['close'].rolling(window=window_size).mean()
@@ -96,30 +109,25 @@ def get_all_data(symbol, interval, api_key, window_size):
     df_stock['ema50'] = df_stock['close'].ewm(span=50, adjust=False).mean()
     df_stock['sma200'] = df_stock['close'].rolling(window=200).mean()
     df_stock['ema200'] = df_stock['close'].ewm(span=200, adjust=False).mean()
+    df_stock['vwap'] = ti.get_vwap(symbol=symbol, interval=interval)[0]
+    df_stock['rsi'] = ti.get_rsi(symbol=symbol, interval=interval)[0]
+    df_stock['macd'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD"]
+    df_stock['macd_signal'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD_Signal"]
+    df_stock['macd_hist'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD_Hist"]
+    df_stock['bbands_upper'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Upper Band']
+    df_stock['bbands_middle'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Middle Band']
+    df_stock['bbands_lower'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Lower Band']
+    df_stock['adx'] = ti.get_adx(symbol=symbol, interval=interval, time_period=window_size)[0]
 
-    delta = df_stock['close'].diff()
-    up, down = delta.copy(), delta.copy()
-    up[up < 0] = 0
-    down[down > 0] = 0
-
-    avg_gain = up.rolling(window=window_size).mean()
-    avg_loss = abs(down.rolling(window=window_size).mean())
-    avg_twice_gain = up.rolling(window=window_size * 2).mean()
-    avg_twice_loss = abs(down.rolling(window=window_size * 2).mean())
-    rs = avg_gain / avg_loss
-    rs2 = avg_twice_gain / avg_twice_loss
-
-    df_stock['rsi'] = 100 - (100 / (1 + rs))
-    df_stock['rsi2'] = 100 - (100 / (1 + rs2))
-
-    df_stock['time'] = df_stock['time'].apply(convert_time_to_trading_minutes)
+    # change the index to be numerical
+    df_stock.reset_index(drop=True, inplace=True)
 
     # Drop the initial rows that have NaN values due to the rolling window calculations
     df_stock.dropna(inplace=True)
 
-    # scale the data using MinMaxScaler
-    scaler = MinMaxScaler()
-    df_stock = pd.DataFrame(scaler.fit_transform(df_stock), columns=df_stock.columns, index=df_stock.index)
+    # Reverse the order of the rows so because currently the most recent data is at the top
+    df_stock = df_stock.iloc[::-1]
+
 
     # Get the Indices of the open, high, low, close, volume, and indicators columns
     columns_indices = {name: i for i, name in enumerate(df_stock.columns)}
@@ -128,73 +136,42 @@ def get_all_data(symbol, interval, api_key, window_size):
 
 
 def get_and_process_data(tickers, interval, api_key, threshold, window_size, years=2, months=12):
-    column_indices = {}
-
-    # Define lists to hold training and testing data
-    X_train = []
-    Y_train = []
-    X_test = []
-    Y_test = []
+    # create a list of shape, (num_windows, window_size, num_features)
+    df_total = []
 
     for ticker in tickers:
-        # start clock
         time = pd.Timestamp.now()
         df, columns_indices = get_all_data(ticker, interval, api_key, window_size)
-
-        temp_windows = create_windows(df, window_size)
-        target = np.zeros(len(df) - window_size)
-
-        for i in range(len(temp_windows) - window_size):
-            #     Check if the average price of the window an hour in the future is greater than the current price
-            if np.mean(temp_windows[i + window_size, :, columns_indices['close']]) > temp_windows[
-                i, -1, columns_indices['close']] * (
-                    1 + threshold):
-                target[i] = 1
-            elif np.mean(temp_windows[i + window_size, :, columns_indices['close']]) < temp_windows[
-                i, -1, columns_indices['close']] * (
-                    1 - threshold):
-                target[i] = 2
-            else:
-                target[i] = 0
+        temp_df = create_windows(df, window_size)
 
         # Convert the data to a supported dtype if necessary
-        if temp_windows.dtype == np.float64:
-            temp_windows = temp_windows.astype(np.float32)
-
-        if isinstance(target, np.ndarray) and target.dtype == np.float64:
-            target = target.astype(np.float32)
-
-        # Split the data into training and testing set with a 80/20 ratio
-        train_size = int(len(temp_windows) * 0.8)
-        X_train.extend(temp_windows[:train_size])
-        Y_train.extend(target[:train_size])
-        X_test.extend(temp_windows[train_size:])
-        Y_test.extend(target[train_size:])
+        if temp_df.dtype == np.float64:
+            temp_df = temp_df.astype(np.float32)
 
         # wait for timer to hit 1 minute
-        while pd.Timestamp.now() - time < pd.Timedelta(minutes=1):
+        while pd.Timestamp.now() - time < pd.Timedelta(seconds=3):
+            pass
+    #   Add the windows for the current stock to the end of the list
+        if ticker == tickers[0]:
+            df_total = temp_df
+        else:
+            df_total = np.concatenate((df_total, temp_df), axis=0)
+
+    #   Wait for 30 seconds before requesting data for the next stock
+        while pd.Timestamp.now() - time < pd.Timedelta(seconds=30):
             pass
 
-        print(ticker + " done")
-
-    X_train = np.array(X_train)
-    Y_train = np.array(Y_train)
-    X_test = np.array(X_test)
-    Y_test = np.array(Y_test)
-
-    Y_train = to_categorical(Y_train, num_classes=3)
-    Y_test = to_categorical(Y_test, num_classes=3)
-
-    return X_train, Y_train, X_test, Y_test
-
+    return df_total
 
 if __name__ == "__main__":
     AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
-    tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NFLX", "NVDA", "TSLA"]
+    tickers = ["AAPL"]
     interval = '1min'
-    threshhold = 0.003
+    threshhold = 0.01
     window_size = 30
     years = 2
     months = 12
 
-    X_train, Y_train, X_test, Y_test = get_and_process_data(tickers, interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
+    stock_df = get_and_process_data(tickers, interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
+
+
