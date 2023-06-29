@@ -63,91 +63,91 @@ class StockEnvironment:
     # Make the Trade by the action
         if action == 0:
             pass
-        elif action == 1: # Use 20% of cash value to buy a share
+        elif action == 1: # Use 5% of cash value to buy a share
             if self.current_cash > self.current_price:
     #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.2)/self.current_price)
+                shares_to_buy = int((self.current_cash*0.05)/self.current_price)
     #             update cash and shares
                 self.current_cash -= shares_to_buy * self.current_price
                 self.current_shares += shares_to_buy
             else:
                 pass
-        elif action == 2: # Use 40% of cash value to buy a share
+        elif action == 2: # Use 10% of cash value to buy a share
             if self.current_cash > self.current_price:
     #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.4)/self.current_price)
+                shares_to_buy = int((self.current_cash*0.10)/self.current_price)
     #             update cash and shares
                 self.current_cash -= shares_to_buy * self.current_price
                 self.current_shares += shares_to_buy
             else:
                 pass
-        elif action == 3: # Use 60% of cash value to buy a share
+        elif action == 3: # Use 15% of cash value to buy a share
             if self.current_cash > self.current_price:
     #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.6)/self.current_price)
+                shares_to_buy = int((self.current_cash*0.15)/self.current_price)
     #             update cash and shares
                 self.current_cash -= shares_to_buy * self.current_price
                 self.current_shares += shares_to_buy
             else:
                 pass
-        elif action == 4: # Use 80% of cash value to buy a share
+        elif action == 4: # Use 20% of cash value to buy a share
             if self.current_cash > self.current_price:
     #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.8)/self.current_price)
+                shares_to_buy = int((self.current_cash*0.20)/self.current_price)
     #             update cash and shares
                 self.current_cash -= shares_to_buy * self.current_price
                 self.current_shares += shares_to_buy
             else:
                 pass
-        elif action == 5: # Use 100% of cash value to buy a share
+        elif action == 5: # Use 25% of cash value to buy a share
             if self.current_cash > self.current_price:
     #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*1)/self.current_price)
+                shares_to_buy = int((self.current_cash*0.25)/self.current_price)
     #             update cash and shares
                 self.current_cash -= shares_to_buy * self.current_price
                 self.current_shares += shares_to_buy
             else:
                 pass
-        elif action == 6: # Sell 20% of shares
+        elif action == 6: # Sell 5% of shares
             if self.current_shares > 0:
     #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.2))
+                shares_to_sell = int((self.current_shares*0.05))
     #             update cash and shares
                 self.current_cash += shares_to_sell * self.current_price
                 self.current_shares -= shares_to_sell
             else:
                 pass
-        elif action == 7: # Sell 40% of shares
+        elif action == 7: # Sell 10% of shares
             if self.current_shares > 0:
     #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.4))
+                shares_to_sell = int((self.current_shares*0.10))
     #             update cash and shares
                 self.current_cash += shares_to_sell * self.current_price
                 self.current_shares -= shares_to_sell
             else:
                 pass
-        elif action == 8: # Sell 60% of shares
+        elif action == 8: # Sell 15% of shares
             if self.current_shares > 0:
     #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.6))
+                shares_to_sell = int((self.current_shares*0.15))
     #             update cash and shares
                 self.current_cash += shares_to_sell * self.current_price
                 self.current_shares -= shares_to_sell
             else:
                 pass
-        elif action == 9: # Sell 80% of shares
+        elif action == 9: # Sell 20% of shares
             if self.current_shares > 0:
     #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.8))
+                shares_to_sell = int((self.current_shares*0.20))
     #             update cash and shares
                 self.current_cash += shares_to_sell * self.current_price
                 self.current_shares -= shares_to_sell
             else:
                 pass
-        elif action == 10: # Sell 100% of shares
+        elif action == 10: # Sell 25% of shares
             if self.current_shares > 0:
     #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*1))
+                shares_to_sell = int((self.current_shares*0.25))
     #             update cash and shares
                 self.current_cash += shares_to_sell * self.current_price
                 self.current_shares -= shares_to_sell
@@ -168,7 +168,7 @@ class StockEnvironment:
             sign = 1 if self.get_current_portfolio_value() > initial_portfolio_value else -1
             reward = (self.get_current_portfolio_value() - initial_portfolio_value)**2 * sign
         else:
-            reward = (self.get_current_portfolio_value() - initial_portfolio_value)
+            reward = ((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value) * 100 # Scale reward to be between -100 and 100
         new_state = torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
         # done to tensor
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
@@ -182,7 +182,7 @@ class StockEnvironment:
         Returns:
             torch.tensor: The current state of the environment.
         """
-        state = np.array(self.data[self.current_step])
+        state = np.array(self.data[self.current_step], dtype=np.float32)
         # add the cash/portfolio value ratio and the share_value/portfolio value ratio at the end
         cash_portfolio_ratio = self.current_cash / self.get_current_portfolio_value()
         share_value_ratio = self.current_price * self.current_shares / self.get_current_portfolio_value()

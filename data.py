@@ -1,14 +1,15 @@
-from time import sleep
-import requests
-import pandas as pd
-import numpy as np
-from io import StringIO
+import io
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
-from keras.utils import to_categorical
-from datetime import datetime
-from alpha_vantage.timeseries import TimeSeries
+import numpy as np
+import pandas as pd
+import requests
+import torch
 from alpha_vantage.techindicators import TechIndicators
+from alpha_vantage.timeseries import TimeSeries
+from keras.utils import to_categorical
+from sklearn.preprocessing import MinMaxScaler
+from time import sleep
+from datetime import datetime
 
 ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
 ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
@@ -85,7 +86,7 @@ def create_windows(data, length):
 
 def get_stock_data(symbol, interval):
     # Alpha Vantage Base URL
-    stock_df, metadata = ts.get_intraday(symbol=symbol, interval=interval, outputsize='full')
+    stock_df, _ = ts.get_intraday(symbol=symbol, interval=interval, outputsize='full')
     # remove the numbers from the column names, i.e 1. open -> open
     stock_df = pd.DataFrame(stock_df)
     stock_df.columns = [col.split(' ')[1] for col in stock_df.columns]
@@ -112,6 +113,17 @@ def get_all_data(symbol, interval, api_key, window_size):
     df_stock['bbands_middle'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Middle Band']
     df_stock['bbands_lower'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Lower Band']
     df_stock['adx'] = ti.get_adx(symbol=symbol, interval=interval, time_period=window_size)[0]
+    df_stock['cci'] = ti.get_cci(symbol=symbol, interval=interval, time_period=window_size)[0]
+    df_stock['aroon_up'] = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]['Aroon Up']
+    df_stock['aroon_down'] = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]['Aroon Down']
+    df_stock['obv'] = ti.get_obv(symbol=symbol, interval=interval)[0]
+    df_stock['stoch_slowk'] = ti.get_stoch(symbol=symbol, interval=interval)[0]['SlowK']
+    df_stock['stoch_slowd'] = ti.get_stoch(symbol=symbol, interval=interval)[0]['SlowD']
+    df_stock['stochf_fastk'] = ti.get_stochf(symbol=symbol, interval=interval)[0]['FastK']
+    df_stock['stochf_fastd'] = ti.get_stochf(symbol=symbol, interval=interval)[0]['FastD']
+    df_stock['stochrsi_fastk'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastK']
+    df_stock['stochrsi_fastd'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastD']
+
 
     # change the index to be numerical
     df_stock.reset_index(drop=True, inplace=True)
@@ -129,33 +141,22 @@ def get_all_data(symbol, interval, api_key, window_size):
     return df_stock, columns_indices
 
 
-def get_and_process_data(tickers, interval, api_key, threshold, window_size, years=2, months=12):
+def get_and_process_data(ticker, interval, api_key, threshold, window_size, years=2, months=12):
     # create a list of shape, (num_windows, window_size, num_features)
-    df_total = []
+    df = []
 
-    for ticker in tickers:
-        time = pd.Timestamp.now()
-        df, columns_indices = get_all_data(ticker, interval, api_key, window_size)
-        temp_df = create_windows(df, window_size)
+    time = pd.Timestamp.now()
+    df, columns_indices = get_all_data(ticker, interval, api_key, window_size)
+    temp_df = create_windows(df, window_size)
 
-        # Convert the data to a supported dtype if necessary
-        if temp_df.dtype == np.float64:
-            temp_df = temp_df.astype(np.float32)
+    # Convert the data to a supported dtype if necessary
+    if temp_df.dtype == np.float64:
+        df = temp_df.astype(np.float32)
+    
+    # Convert the numpy array to a PyTorch tensor
+    df = torch.from_numpy(temp_df)
 
-        # wait for timer to hit 1 minute
-        while pd.Timestamp.now() - time < pd.Timedelta(seconds=3):
-            pass
-    #   Add the windows for the current stock to the end of the list
-        if ticker == tickers[0]:
-            df_total = temp_df
-        else:
-            df_total = np.concatenate((df_total, temp_df), axis=0)
-
-    # #   Wait for 30 seconds before requesting data for the next stock
-    #     while pd.Timestamp.now() - time < pd.Timedelta(seconds=30):
-    #         pass
-
-    return df_total
+    return df
 
 if __name__ == "__main__":
     AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
@@ -165,7 +166,4 @@ if __name__ == "__main__":
     window_size = 30
     years = 2
     months = 12
-
-    stock_df = get_and_process_data(tickers, interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
-
 
