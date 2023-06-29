@@ -1,6 +1,6 @@
 import numpy as np       
 import matplotlib.pyplot as plt 
-
+from time import sleep
 from collections import deque
 
 import base64
@@ -132,44 +132,80 @@ def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions,
             action = torch.argmax(Q_values).item()
     return action, hidden_state1, hidden_state2
 
+def update_Q_values(batch, Q_network, target_network, optimizer, architecture, gamma=0.99):
+    """
+    Update the Q values and perform a backward pass.
 
-def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
+    Args:
+        batch: A batch of experiences containing states, actions, rewards, next states and hidden states.
+        Q_network: The current Q network model.
+        target_network: The target Q network model.
+        optimizer: The optimizer used to update the weights of the Q network.
+        architecture (str): The architecture of the Q network (e.g., 'LSTM').
+        gamma (float, optional): The discount factor for future rewards. Defaults to 0.99.
+
+    Returns:
+        None
     """
-    Update Q values and perform a backward pass.
-    """
+    # Convert the batch data into tensors
     state_batch = torch.cat(batch.state)
     action_batch = torch.tensor(batch.action)
     reward_batch = torch.tensor(batch.reward)
     next_state_batch = torch.cat(batch.next_state)
 
     def process_batch(hidden_state):
+        """
+        Process the hidden states from the batch.
+        
+        Args:
+            hidden_state: A list of hidden states.
+
+        Returns:
+            A tensor containing the processed hidden states.
+        """
+        # Check if hidden state is a tuple (for LSTM)
         if isinstance(hidden_state[0], tuple):
             return (torch.stack([x[0] for x in hidden_state]).squeeze().unsqueeze(0), torch.stack([x[1] for x in hidden_state]).squeeze().unsqueeze(0))
         else:
             return torch.stack(hidden_state).squeeze().unsqueeze(0)
 
+    # Process the hidden states
     hidden_state1_batch = process_batch(batch.hidden_state1)
     hidden_state2_batch = process_batch(batch.hidden_state2)
     next_hidden_state1_batch = process_batch(batch.next_hidden_state1)
     next_hidden_state2_batch = process_batch(batch.next_hidden_state2)
 
+    # Compute current Q values
     current_Q_values, _, _ = Q_network(state_batch, hidden_state1_batch, hidden_state2_batch)
+
+    # For LSTM architecture, remove unnecessary dimension
+    if architecture == 'LSTM':
+        current_Q_values = current_Q_values.squeeze()
+    # Gather the Q values for the actions taken
     current_Q_values = current_Q_values.gather(1, action_batch.view(-1, 1)).squeeze()
-    
+
+    # Compute Q values for next states
     next_Q_values, _, _ = target_network(next_state_batch, next_hidden_state1_batch, next_hidden_state2_batch)
+    # For LSTM architecture, remove unnecessary dimension
+    if architecture == 'LSTM':
+        next_Q_values = next_Q_values.squeeze()
+    # Detach the Q values and get the maximum Q value for each next state
     next_Q_values = next_Q_values.max(1)[0].detach()
-    
+
+    # Compute the target Q values
     target_Q_values = reward_batch + (gamma * next_Q_values)
+    # Compute the loss between current and target Q values
     loss = F.smooth_l1_loss(current_Q_values, target_Q_values)
 
+    # Zero the gradients
     optimizer.zero_grad()
+    # Perform a backward pass to compute gradients
     loss.backward()
+    # Update the weights of the Q network
     optimizer.step()
 
-
-
-def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128, data = get_and_process_data(['AAPL'], '1min', 'A5QND05S0W7CU55E', 0.01, 60, 2, 12)
-, architecture='LSTM', window_size=60, hidden_size=128, dense_size=128, dense_layers=1, reward_function='squared'):
+def main_loop(num_episodes=100, C=10, BATCH_SIZE=128, data = get_and_process_data(['AAPL'], '1min', 'A5QND05S0W7CU55E', 0.01, 60, 2, 12)
+, architecture='LSTM', window_size=60, hidden_size=128, dense_size=256, dense_layers=3, reward_function='squared'):
     """
     Run the main loop of DQN training.
     """
@@ -191,7 +227,7 @@ def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128, data = get_and_process_da
             if len(memoryReplay) >= BATCH_SIZE:
                 transitions = memoryReplay.sample(BATCH_SIZE)
                 batch = Transition(*zip(*transitions))
-                update_Q_values(batch, Q_network, target_network, optimizer)
+                update_Q_values(batch, Q_network, target_network, optimizer, architecture)
 
             if steps_done % C == 0:
                 target_network.load_state_dict(Q_network.state_dict())
