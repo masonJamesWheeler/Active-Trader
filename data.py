@@ -151,9 +151,9 @@ def get_and_process_data(tickers, interval, api_key, threshold, window_size, yea
         else:
             df_total = np.concatenate((df_total, temp_df), axis=0)
 
-    #   Wait for 30 seconds before requesting data for the next stock
-        while pd.Timestamp.now() - time < pd.Timedelta(seconds=30):
-            pass
+    # #   Wait for 30 seconds before requesting data for the next stock
+    #     while pd.Timestamp.now() - time < pd.Timedelta(seconds=30):
+    #         pass
 
     return df_total
 

@@ -60,8 +60,17 @@ class DQN(nn.Module):
         self.output_layer = nn.Linear(dense_size // (2 ** (dense_layers-1)), num_actions)
 
     def forward(self, x, hidden_state1, hidden_state2):
-        x, hidden_state1 = self.rnn1(x, hidden_state1)
-        x, hidden_state2 = self.rnn2(x, hidden_state2)
+        if isinstance(self.rnn1, nn.LSTM):
+            h1, c1 = hidden_state1
+            h2, c2 = hidden_state2
+            x, (h1, c1) = self.rnn1(x, (h1, c1))
+            x, (h2, c2) = self.rnn2(x, (h2, c2))
+            hidden_state1 = (h1, c1)
+            hidden_state2 = (h2, c2)
+        else:
+            x, hidden_state1 = self.rnn1(x, hidden_state1)
+            x, hidden_state2 = self.rnn2(x, hidden_state2)
+
         x = hidden_state2[-1]  # Using the last hidden state of the second GRU
 
         # Pass through dynamic dense layers
@@ -73,8 +82,13 @@ class DQN(nn.Module):
         return x, hidden_state1, hidden_state2
 
     def init_hidden(self, batch_size):
-        return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
+        if isinstance(self.rnn1, nn.LSTM):
+            return (torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)), \
+                (torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size))
+        else:
+            return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
 
+    
 def initialize(data, architecture, window_size, hidden_size, dense_size, dense_layers, reward_function):
     """
     Initialize environment, DQN networks, optimizer and memory replay.
@@ -118,6 +132,7 @@ def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions,
             action = torch.argmax(Q_values).item()
     return action, hidden_state1, hidden_state2
 
+
 def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
     """
     Update Q values and perform a backward pass.
@@ -128,7 +143,10 @@ def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
     next_state_batch = torch.cat(batch.next_state)
 
     def process_batch(hidden_state):
-        return torch.stack(hidden_state).squeeze().unsqueeze(0)
+        if isinstance(hidden_state[0], tuple):
+            return (torch.stack([x[0] for x in hidden_state]).squeeze().unsqueeze(0), torch.stack([x[1] for x in hidden_state]).squeeze().unsqueeze(0))
+        else:
+            return torch.stack(hidden_state).squeeze().unsqueeze(0)
 
     hidden_state1_batch = process_batch(batch.hidden_state1)
     hidden_state2_batch = process_batch(batch.hidden_state2)
