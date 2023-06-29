@@ -1,5 +1,5 @@
-import numpy as np           # Handle matrices
-import matplotlib.pyplot as plt # Display graphs
+import numpy as np       
+import matplotlib.pyplot as plt 
 
 from collections import deque
 
@@ -27,58 +27,71 @@ from collections import namedtuple
 import warnings
 warnings.filterwarnings('ignore')
 
-# Getting Data from AlphaVantage
-AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
-tickers = ["AAPL"]
-interval = '1min'
-threshhold = 0.01
-window_size = 30
-years = 2
-months = 12
-
 Transition = namedtuple('Transition',
                         ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward', 'next_hidden_state1', 'next_hidden_state2'))
 
 
 class DQN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_actions):
+    def __init__(self, input_size, hidden_size, num_actions, architecture, dense_layers, dense_size):
         super(DQN, self).__init__()
         self.hidden_size = hidden_size
-        self.gru1 = nn.GRU(input_size, hidden_size, batch_first=True)
-        self.gru2 = nn.GRU(hidden_size, hidden_size, batch_first=True)
-        self.fc = nn.Linear(hidden_size, num_actions)
+
+        # Choose architecture based on the input argument
+        if architecture == 'RNN':
+            RNN_Layer = nn.RNN
+        elif architecture == 'GRU':
+            RNN_Layer = nn.GRU
+        elif architecture == 'LSTM':
+            RNN_Layer = nn.LSTM
+        else:
+            raise ValueError(f'Invalid architecture: {architecture}')
+
+        self.rnn1 = RNN_Layer(input_size, hidden_size, batch_first=True)
+        self.rnn2 = RNN_Layer(hidden_size, hidden_size, batch_first=True)
+
+        # Dynamic construction of dense layers
+        self.dense_layers = nn.ModuleList()
+        for i in range(dense_layers):
+            if i == 0:
+                self.dense_layers.append(nn.Linear(hidden_size, dense_size))
+            else:
+                self.dense_layers.append(nn.Linear(dense_size // (2 ** (i-1)), dense_size // (2 ** i)))
+
+        self.output_layer = nn.Linear(dense_size // (2 ** (dense_layers-1)), num_actions)
 
     def forward(self, x, hidden_state1, hidden_state2):
-        x, hidden_state1 = self.gru1(x, hidden_state1)
-        x, hidden_state2 = self.gru2(x, hidden_state2)
-        x = self.fc(hidden_state2[-1])  # Using the last hidden state of the second GRU
+        x, hidden_state1 = self.rnn1(x, hidden_state1)
+        x, hidden_state2 = self.rnn2(x, hidden_state2)
+        x = hidden_state2[-1]  # Using the last hidden state of the second GRU
+
+        # Pass through dynamic dense layers
+        for i, dense_layer in enumerate(self.dense_layers):
+            x = F.relu(dense_layer(x))
+
+        x = self.output_layer(x)
+
         return x, hidden_state1, hidden_state2
 
     def init_hidden(self, batch_size):
         return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
 
-# Data is shaped [num_windows, window_size, num_features]
-data = get_and_process_data(tickers, interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
-print(data[0])
-
-def initialize():
+def initialize(data, architecture, window_size, hidden_size, dense_size, dense_layers, reward_function):
     """
     Initialize environment, DQN networks, optimizer and memory replay.
     """
     starting_cash = 10000
     starting_shares = 100
-    window_size = 30
+    window_size = 60
     price_column = 3
     feature_size = 20
-    window_size = 30
     hidden_size = 128
     num_actions = 11
     #Data size is [1, stack_size, window_size, feature_size]
 
-    env = StockEnvironment(starting_cash, starting_shares, data, window_size, feature_size, price_column)
+    env = StockEnvironment(starting_cash, starting_shares, data, window_size, feature_size, price_column, reward_function=reward_function)
     memoryReplay = ReplayMemory(100000)
-    Q_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions)
-    target_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions)
+    Q_network = DQN(input_size=feature_size+2, hidden_size=hidden_size, num_actions=num_actions, architecture=architecture, dense_layers=dense_layers, dense_size=dense_size)
+    target_network = DQN(input_size=feature_size+2, hidden_size=hidden_size, num_actions=num_actions, architecture=architecture, dense_layers=dense_layers, dense_size=dense_size)
     target_network.load_state_dict(Q_network.state_dict())
     optimizer = optim.Adam(Q_network.parameters())
 
@@ -113,12 +126,15 @@ def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
     action_batch = torch.tensor(batch.action)
     reward_batch = torch.tensor(batch.reward)
     next_state_batch = torch.cat(batch.next_state)
-    hidden_state1_batch = torch.stack(batch.hidden_state1)
-    hidden_state2_batch = torch.stack(batch.hidden_state2)
-    next_hidden_state1_batch = torch.stack(batch.next_hidden_state1)
-    next_hidden_state2_batch = torch.stack(batch.next_hidden_state2)
 
-    print(state_batch.shape)
+    def process_batch(hidden_state):
+        return torch.stack(hidden_state).squeeze().unsqueeze(0)
+
+    hidden_state1_batch = process_batch(batch.hidden_state1)
+    hidden_state2_batch = process_batch(batch.hidden_state2)
+    next_hidden_state1_batch = process_batch(batch.next_hidden_state1)
+    next_hidden_state2_batch = process_batch(batch.next_hidden_state2)
+
     current_Q_values, _, _ = Q_network(state_batch, hidden_state1_batch, hidden_state2_batch)
     current_Q_values = current_Q_values.gather(1, action_batch.view(-1, 1)).squeeze()
     
@@ -134,11 +150,12 @@ def update_Q_values(batch, Q_network, target_network, optimizer, gamma=0.99):
 
 
 
-def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128):
+def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128, data = get_and_process_data(['AAPL'], '1min', 'A5QND05S0W7CU55E', 0.01, 60, 2, 12)
+, architecture='LSTM', window_size=60, hidden_size=128, dense_size=128, dense_layers=1, reward_function='squared'):
     """
     Run the main loop of DQN training.
     """
-    env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize()
+    env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(architecture=architecture, data=data, window_size=window_size, hidden_size=hidden_size, dense_size=dense_size, dense_layers=dense_layers, reward_function=reward_function)
     steps_done = 0
     for episode in range(num_episodes):
         state = env.reset()
@@ -163,8 +180,18 @@ def main_loop(num_episodes=1000, C=10, BATCH_SIZE=128):
 
             state = next_state
 
-
-
 if __name__ == "__main__":
+        # Getting Data from AlphaVantage
+    AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
+    tickers = ["AAPL"]
+    interval = '1min'
+    threshhold = 0.01
+    window_size = 60
+    years = 2
+    months = 12
+
+    # Data is shaped [num_windows, window_size, num_features]
+    data = get_and_process_data(tickers, interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
+
     main_loop()
 
