@@ -205,7 +205,7 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     # Update the weights of the Q network
     optimizer.step()
 
-def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=128, architecture='LSTM', window_size=124, hidden_size=128, dense_size=128, dense_layers=2, reward_function='linear'):
+def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=128, architecture='RNN', window_size=124, hidden_size=128, dense_size=128, dense_layers=2, reward_function='linear'):
     """
     Run the main loop of DQN training.
     """
@@ -222,8 +222,10 @@ def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=128, architecture='LST
     # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
     env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(architecture=architecture, data=data, window_size=window_size, hidden_size=hidden_size, dense_size=dense_size, dense_layers=dense_layers, reward_function=reward_function)
     steps_done = 0
+    iterator = 0
     # Loop through all tickers
     for ticker in range(len(tickers)):
+        iterator += 1
         # Retrieve and process data for the current ticker
         env.data = get_and_process_data(tickers[ticker], interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
         # Reset the environment and initialize the hidden states
@@ -252,6 +254,9 @@ def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=128, architecture='LST
                 target_network.load_state_dict(Q_network.state_dict())
 
             state = next_state
+
+        torch.save(Q_network.state_dict(), f'Q_network_weights_episode_{iterator}.pth')
+
 
 if __name__ == "__main__":
     tickers = ["AAPL", "AMZN", "GOOGL", "MSFT", "META", "TSLA", "NVDA", "PYPL", "ADBE", "NFLX"]

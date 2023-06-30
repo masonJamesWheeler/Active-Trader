@@ -2,10 +2,11 @@ import math
 import random
 from collections import deque
 from time import sleep
-
+import csv
 import numpy as np
 import pandas as pd
 import torch
+import os
 
 
 
@@ -37,6 +38,20 @@ class StockEnvironment:
         self.reward_function = reward_function
 
 
+        filename = 'portfolio_values.csv'
+        if os.path.isfile(filename):
+            i = 1
+            while os.path.isfile(f'portfolio_values_{i}.csv'):
+                i += 1
+            self.csv_file = open('portfolio_values.csv', 'w', newline='')
+            self.writer = csv.writer(self.csv_file)
+            self.writer.writerow(['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
+        else:
+            self.csv_file = open('portfolio_values.csv', 'w', newline='')
+            self.writer = csv.writer(self.csv_file)
+            self.writer.writerow(['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
+
+
     def sample_action(self):
         """
         Returns a random action from the action space.
@@ -60,6 +75,7 @@ class StockEnvironment:
     #     Check if the episode is over
         if self.episode_ended:
             return self.reset()
+        self.writer.writerow([self.current_step, float(self.current_price) , action, float(self.get_buy_and_hold_portfolio_value()), float(self.get_current_portfolio_value())])
     # Make the Trade by the action
         if action == 0:
             pass
