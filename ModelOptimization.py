@@ -10,7 +10,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-import torch
+import piptorch
 import torch.nn as nn
 import torch.optim as optim
 

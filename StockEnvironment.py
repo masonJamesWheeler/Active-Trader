@@ -37,19 +37,18 @@ class StockEnvironment:
         self.current_time_step_value = data[self.current_step]
         self.reward_function = reward_function
 
-
-        filename = 'portfolio_values.csv'
+        filename = './portfolio_values.csv'
         if os.path.isfile(filename):
             i = 1
             while os.path.isfile(f'portfolio_values_{i}.csv'):
                 i += 1
-            self.csv_file = open('portfolio_values.csv', 'w', newline='')
-            self.writer = csv.writer(self.csv_file)
-            self.writer.writerow(['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
+            csv_file = open(f'portfolio_values_{i}.csv', 'w', newline='')
         else:
-            self.csv_file = open('portfolio_values.csv', 'w', newline='')
-            self.writer = csv.writer(self.csv_file)
-            self.writer.writerow(['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
+            csv_file = open(filename, 'w', newline='')
+
+        writer = csv.writer(csv_file)
+        writer.writerow(
+            ['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
 
 
     def sample_action(self):
