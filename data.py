@@ -10,7 +10,7 @@ from keras.utils import to_categorical
 from sklearn.preprocessing import MinMaxScaler
 from time import sleep
 from datetime import datetime
-
+scaler = MinMaxScaler(feature_range=(0, 1))
 ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
 ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
 
@@ -123,7 +123,10 @@ def get_all_data(symbol, interval, api_key, window_size):
     df_stock['stochf_fastd'] = ti.get_stochf(symbol=symbol, interval=interval)[0]['FastD']
     df_stock['stochrsi_fastk'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastK']
     df_stock['stochrsi_fastd'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastD']
-
+    # Iterate through the data and remove all rows where close is > 10% different from the previous close
+    for i in range(1, len(df_stock)):
+        if abs(df_stock['close'][i] - df_stock['close'][i - 1]) / df_stock['close'][i - 1] > 0.1:
+            df_stock.drop(i, inplace=True)
 
     # change the index to be numerical
     df_stock.reset_index(drop=True, inplace=True)
@@ -144,19 +147,33 @@ def get_all_data(symbol, interval, api_key, window_size):
 def get_and_process_data(ticker, interval, api_key, threshold, window_size, years=2, months=12):
     # create a list of shape, (num_windows, window_size, num_features)
     df = []
-
+    scaled_df = []
     time = pd.Timestamp.now()
     df, columns_indices = get_all_data(ticker, interval, api_key, window_size)
+
     temp_df = create_windows(df, window_size)
+
+    # Flatten the window_size and num_features dimensions into one
+    num_windows, _, _ = temp_df.shape
+    temp_df_2d = temp_df.reshape(num_windows, -1)
+
+    # Scale the DataFrame
+    scaler = MinMaxScaler()
+    scaled_temp_df_2d = scaler.fit_transform(temp_df_2d)
+
+    # Reshape the scaled data back to the original shape
+    scaled_temp_df = scaled_temp_df_2d.reshape(temp_df.shape)
 
     # Convert the data to a supported dtype if necessary
     if temp_df.dtype == np.float64:
         df = temp_df.astype(np.float32)
-    
+        scaled_df = scaled_temp_df.astype(np.float32)
+
     # Convert the numpy array to a PyTorch tensor
     df = torch.from_numpy(temp_df)
+    scaled_df = torch.from_numpy(scaled_temp_df)
 
-    return df
+    return df, scaled_df
 
 if __name__ == "__main__":
     AlphaVantage_Free_Key = "A5QND05S0W7CU55E"

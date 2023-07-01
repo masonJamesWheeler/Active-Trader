@@ -11,18 +11,21 @@ import os
 
 
 class StockEnvironment:
-    def __init__(self, starting_cash, starting_shares, data, window_size, feature_size, price_column, reward_function):
+    def __init__(self, starting_cash, starting_shares, data, scaled_data, window_size, feature_size, price_column,
+                 reward_function):
         # Define the action space as a list of integers from 0 to 10
         self.action_space = list(range(11))
-        
+
         # Define the observation space as a tensor of zeros with shape (window_size, feature_size+2)
-        self.observation_space = torch.zeros((window_size, feature_size+2), dtype=torch.float32).to('cpu') # Modify for your device, i.e., use 'cuda' for GPU
+        self.observation_space = torch.zeros((window_size, feature_size + 2), dtype=torch.float32).to(
+            'cpu')  # Modify for your device, i.e., use 'cuda' for GPU
 
         # Set initial values for various variables
         self.episode_ended = False
         self.starting_cash = starting_cash
         self.starting_shares = starting_shares
         self.data = data
+        self.scaled_data = scaled_data
         self.window_size = window_size
         self.feature_size = feature_size
         self.price_column = price_column
@@ -31,11 +34,11 @@ class StockEnvironment:
         self.current_cash = starting_cash
         self.current_shares = starting_shares
         self.current_portfolio_value = starting_cash
-        self.current_portfolio_value_history = []
-        self.current_portfolio_value_history.append(starting_cash)
-        self.batch_size = 32
+        self.buy_and_hold_shares = (self.starting_cash/ self.data[0, -1, self.price_column]) + self.starting_shares
+        self.batch_size = 524
         self.current_time_step_value = data[self.current_step]
         self.reward_function = reward_function
+
 
         filename = './portfolio_values.csv'
         if os.path.isfile(filename):
@@ -49,8 +52,7 @@ class StockEnvironment:
         writer = csv.writer(csv_file)
         writer.writerow(
             ['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
-
-
+        self.writer = writer
     def sample_action(self):
         """
         Returns a random action from the action space.
@@ -170,20 +172,19 @@ class StockEnvironment:
                 pass
         else:
             raise ValueError("Action not recognized")
+        # add the current price to the price history
+        self.price_history.append(self.current_price)
 
         self.current_step += 1
-        self.current_portfolio_value_history.append(self.get_current_portfolio_value())
 
         done = False
         if self.current_step >= len(self.data) -1:
             done = True
         else:
             self.update_state()
-        if self.reward_function == "squared":
-            sign = 1 if self.get_current_portfolio_value() > initial_portfolio_value else -1
-            reward = (self.get_current_portfolio_value() - initial_portfolio_value)**2 * sign
-        else:
-            reward = ((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value) * 100 # Scale reward to be between -100 and 100
+
+        reward = (((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value)) * 1000 # Scale reward to be between -100 and 100
+        self.render(reward=reward)
         new_state = torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
         # done to tensor
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
@@ -197,7 +198,7 @@ class StockEnvironment:
         Returns:
             torch.tensor: The current state of the environment.
         """
-        state = np.array(self.data[self.current_step], dtype=np.float32)
+        state = np.array(self.scaled_data[self.current_step], dtype=np.float32)
         # add the cash/portfolio value ratio and the share_value/portfolio value ratio at the end
         cash_portfolio_ratio = self.current_cash / self.get_current_portfolio_value()
         share_value_ratio = self.current_price * self.current_shares / self.get_current_portfolio_value()
@@ -207,7 +208,6 @@ class StockEnvironment:
         state_with_ratios[0, :, -2] = cash_portfolio_ratio
         state_with_ratios[0, :, -1] = share_value_ratio
 
-        print(state_with_ratios.shape)
         state = torch.tensor(state_with_ratios, dtype=torch.float32).to('cpu')
         return state
 
@@ -226,9 +226,17 @@ class StockEnvironment:
         self.current_portfolio_value_history = []
         self.current_portfolio_value_history.append(self.starting_cash)
         self.current_price = self.get_current_price()
+
+        # Fill all the histories with zeroes
+        self.price_history = [0 for i in range(self.window_size)]
+        self.portfolio_value_history = [0 for i in range(self.window_size)]
+        self.cash_history = [0 for i in range(self.window_size)]
+        self.action_history = [0 for i in range(self.window_size)]
+        self.shares_history = [0 for i in range(self.window_size)]
+
         return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
-    def render(self):
+    def render(self, reward):
         """
         Renders the current state of the environment.
 
@@ -236,7 +244,7 @@ class StockEnvironment:
         If the current step is outside the length of the dataset, prints "End of dataset".
         """
         if self.current_step <= len(self.data) -1:
-            print(f'Step: {self.current_step}, Portfolio Value: {self.current_portfolio_value}, vs. Buy and Hold: {self.get_buy_and_hold_portfolio_value()}')
+            print(f'Step: {self.current_step}, Portfolio Value: {self.current_portfolio_value}, vs. Buy and Hold: {self.get_buy_and_hold_portfolio_value()}, Reward: {reward}')
         else:
             print('End of dataset')
 
@@ -259,7 +267,7 @@ class StockEnvironment:
         """
         # Calculate the portfolio value as the sum of starting cash and the value of starting shares
         # multiplied by the closing price of the stock at the current step
-        return self.starting_cash + self.starting_shares * self.data[self.current_step, -1, 3]
+        return self.buy_and_hold_shares * self.data[self.current_step, -1, 3]
 
 # ReplayMemory class for storing and sampling transitions
 class ReplayMemory:
