@@ -98,12 +98,12 @@ def get_all_data(symbol, interval, api_key, window_size):
     df_stock = get_stock_data(symbol, interval)
 
     # Calculate SMA, EMA and RSI
-    df_stock['smawindow'] = df_stock['close'].rolling(window=window_size).mean()
-    df_stock['emawindow'] = df_stock['close'].ewm(span=window_size, adjust=False).mean()
-    df_stock['sma50'] = df_stock['close'].rolling(window=50).mean()
-    df_stock['ema50'] = df_stock['close'].ewm(span=50, adjust=False).mean()
-    df_stock['sma200'] = df_stock['close'].rolling(window=200).mean()
-    df_stock['ema200'] = df_stock['close'].ewm(span=200, adjust=False).mean()
+    df_stock['smawindow'] = ti.get_sma(symbol=symbol, interval=interval, time_period=window_size)[0]
+    df_stock['emawindow'] = ti.get_ema(symbol=symbol, interval=interval, time_period=window_size)[0]
+    df_stock['sma50'] = ti.get_sma(symbol=symbol, interval=interval, time_period=50)[0]
+    df_stock['ema50'] = ti.get_ema(symbol=symbol, interval=interval, time_period=50)[0]
+    df_stock['sma200'] = ti.get_sma(symbol=symbol, interval=interval, time_period=200)[0]
+    df_stock['ema200'] = ti.get_ema(symbol=symbol, interval=interval, time_period=200)[0]
     df_stock['vwap'] = ti.get_vwap(symbol=symbol, interval=interval)[0]
     df_stock['rsi'] = ti.get_rsi(symbol=symbol, interval=interval)[0]
     df_stock['macd'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD"]
@@ -123,10 +123,9 @@ def get_all_data(symbol, interval, api_key, window_size):
     df_stock['stochf_fastd'] = ti.get_stochf(symbol=symbol, interval=interval)[0]['FastD']
     df_stock['stochrsi_fastk'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastK']
     df_stock['stochrsi_fastd'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastD']
-    # Iterate through the data and remove all rows where close is > 10% different from the previous close
-    for i in range(1, len(df_stock)):
-        if abs(df_stock['close'][i] - df_stock['close'][i - 1]) / df_stock['close'][i - 1] > 0.1:
-            df_stock.drop(i, inplace=True)
+
+    # print the dictionary of the columns to their index
+    print({name: i for i, name in enumerate(df_stock.columns)})
 
     # change the index to be numerical
     df_stock.reset_index(drop=True, inplace=True)
@@ -173,14 +172,23 @@ def get_and_process_data(ticker, interval, api_key, threshold, window_size, year
     df = torch.from_numpy(temp_df)
     scaled_df = torch.from_numpy(scaled_temp_df)
 
-    return df, scaled_df
+    return df, scaled_df, scaler
+
+
 
 if __name__ == "__main__":
     AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
-    tickers = ["AAPL"]
+    tickers = ["UBER"]
     interval = '1min'
     threshhold = 0.01
     window_size = 30
     years = 2
     months = 12
+
+    # data = get_and_process_data(tickers[0], interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
+
+    vwap = (ti.get_vwap(symbol=tickers[0], interval=interval))
+#     print the last value
+    print(vwap[0])
+
 

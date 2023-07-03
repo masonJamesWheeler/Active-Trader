@@ -7,7 +7,7 @@ import pandas as pd
 import sys
 
 # Read in the data
-data = pd.read_csv('GOOGL.csv')
+data = pd.read_csv('MSFT.csv')
 
 # Calculate the excess return, which we are calling "Alpha" for simplicity
 data['Alpha'] = ((data['DQN Agent Portfolio Value'] - data['Buy and Hold Portfolio Value']) / data['Buy and Hold Portfolio Value']) * 100
@@ -66,7 +66,7 @@ stock_data[stock_id] = {
 # Loop through the dictionary and plot data for each stock
 for stock_id, stock_values in stock_data.items():
     if stock_id == 0:
-        stock_id = 'GOOGL'
+        stock_id = 'MSFT'
     # Research style plots
     plt.style.use('seaborn-whitegrid')
     plt.rcParams.update({'font.size': 12, 'font.family': 'Serif', 'font.weight': 'semibold', 'axes.labelweight': 'semibold', 'axes.titleweight': 'semibold'})

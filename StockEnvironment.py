@@ -73,6 +73,7 @@ class StockEnvironment:
 
     def step(self, action):
         initial_portfolio_value = self.get_current_portfolio_value()
+
     #     Check if the episode is over
         if self.episode_ended:
             return self.reset()
@@ -172,9 +173,9 @@ class StockEnvironment:
                 pass
         else:
             raise ValueError("Action not recognized")
+
         # add the current price to the price history
         self.price_history.append(self.current_price)
-
         self.current_step += 1
 
         done = False
@@ -183,8 +184,9 @@ class StockEnvironment:
         else:
             self.update_state()
 
-        reward = (((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value)) * 1000 # Scale reward to be between -100 and 100
-        self.render(reward=reward)
+        reward = self.get_current_portfolio_value() - initial_portfolio_value
+        # reward = (((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value)) * 1000 # Scale reward to be between -100 and 100
+        self.render(reward=reward, share_price = self.current_price)
         new_state = torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
         # done to tensor
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
@@ -236,7 +238,7 @@ class StockEnvironment:
 
         return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
-    def render(self, reward):
+    def render(self, reward, share_price):
         """
         Renders the current state of the environment.
 
@@ -244,7 +246,7 @@ class StockEnvironment:
         If the current step is outside the length of the dataset, prints "End of dataset".
         """
         if self.current_step <= len(self.data) -1:
-            print(f'Step: {self.current_step}, Portfolio Value: {self.current_portfolio_value}, vs. Buy and Hold: {self.get_buy_and_hold_portfolio_value()}, Reward: {reward}')
+            print(f'Step: {self.current_step}, Portfolio Value: {self.current_portfolio_value}, vs. Buy and Hold: {self.get_buy_and_hold_portfolio_value()}, Reward: {reward}', f'Share Price: {share_price}')
         else:
             print('End of dataset')
 
@@ -342,14 +344,3 @@ class EpsilonGreedyStrategy:
             The exploration rate for the current step.
         """
         return self.end + (self.start - self.end) * math.exp(-1. * current_step * self.decay)
-
-
-
-
-
-
-
-
-
-
-

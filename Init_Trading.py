@@ -1,3 +1,8 @@
+from LiveStockEnvironment import LiveStockEnvironment
+from StockEnvironment import ReplayMemory
+import numpy as np
+import torch
+
 import base64
 import collections
 import imageio
@@ -20,7 +25,8 @@ from data import get_and_process_data
 warnings.filterwarnings('ignore')
 
 Transition = namedtuple('Transition',
-                        ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward', 'next_hidden_state1', 'next_hidden_state2'))
+                        ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward',
+                         'next_hidden_state1', 'next_hidden_state2'))
 
 
 class DQN(nn.Module):
@@ -50,10 +56,10 @@ class DQN(nn.Module):
             if i == 0:
                 self.dense_layers.append(nn.Linear(hidden_size, dense_size))
             else:
-                self.dense_layers.append(nn.Linear(dense_size // (2 ** (i-1)), dense_size // (2 ** i)))
+                self.dense_layers.append(nn.Linear(dense_size // (2 ** (i - 1)), dense_size // (2 ** i)))
             self.dropout_layers.append(nn.Dropout(dropout_rate))
 
-        self.output_layer = nn.Linear(dense_size // (2 ** (dense_layers-1)), num_actions)
+        self.output_layer = nn.Linear(dense_size // (2 ** (dense_layers - 1)), num_actions)
 
     def forward(self, x, hidden_state1, hidden_state2):
         if isinstance(self.rnn1, nn.LSTM):
@@ -88,7 +94,8 @@ class DQN(nn.Module):
                 (torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size))
         else:
             return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
-    
+
+
 def initialize(data, scaled_data, architecture, window_size, hidden_size, dense_size, dense_layers, reward_function):
     """
     Initialize environment, DQN networks, optimizer and memory replay.
@@ -101,12 +108,17 @@ def initialize(data, scaled_data, architecture, window_size, hidden_size, dense_
     hidden_size = 128
     num_actions = 11
     dropout_rate = 0.2
-    #Data size is [1, stack_size, window_size, feature_size]
+    # Data size is [1, stack_size, window_size, feature_size]
 
-    env = StockEnvironment(starting_cash, starting_shares, data, scaled_data, window_size, feature_size, price_column, reward_function=reward_function)
+    env = StockEnvironment(starting_cash, starting_shares, data, scaled_data, window_size, feature_size, price_column,
+                           reward_function=reward_function)
     memoryReplay = ReplayMemory(100000)
-    Q_network = DQN(input_size=feature_size+2, hidden_size=hidden_size, num_actions=num_actions, architecture=architecture, dense_layers=dense_layers, dense_size=dense_size, dropout_rate = dropout_rate)
-    target_network = DQN(input_size=feature_size+2, hidden_size=hidden_size, num_actions=num_actions, architecture=architecture, dense_layers=dense_layers, dense_size=dense_size, dropout_rate = dropout_rate)
+    Q_network = DQN(input_size=feature_size + 2, hidden_size=hidden_size, num_actions=num_actions,
+                    architecture=architecture, dense_layers=dense_layers, dense_size=dense_size,
+                    dropout_rate=dropout_rate)
+    target_network = DQN(input_size=feature_size + 2, hidden_size=hidden_size, num_actions=num_actions,
+                         architecture=architecture, dense_layers=dense_layers, dense_size=dense_size,
+                         dropout_rate=dropout_rate)
     target_network.load_state_dict(Q_network.state_dict())
     optimizer = optim.Adam(Q_network.parameters())
 
@@ -121,6 +133,7 @@ def epsilon_decay(steps_done, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay
     """
     return epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1. * steps_done / epsilon_decay)
 
+
 def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions, Q_network):
     """
     Execute action based on epsilon-greedy policy.
@@ -132,6 +145,7 @@ def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions,
             Q_values, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
             action = torch.argmax(Q_values).item()
     return action, hidden_state1, hidden_state2
+
 
 def update_Q_values(batch, Q_network, target_network, optimizer, architecture, gamma=0.99):
     """
@@ -157,7 +171,7 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     def process_batch(hidden_state):
         """
         Process the hidden states from the batch.
-        
+
         Args:
             hidden_state: A list of hidden states.
 
@@ -166,7 +180,8 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
         """
         # Check if hidden state is a tuple (for LSTM)
         if isinstance(hidden_state[0], tuple):
-            return (torch.stack([x[0] for x in hidden_state]).squeeze().unsqueeze(0), torch.stack([x[1] for x in hidden_state]).squeeze().unsqueeze(0))
+            return (torch.stack([x[0] for x in hidden_state]).squeeze().unsqueeze(0),
+                    torch.stack([x[1] for x in hidden_state]).squeeze().unsqueeze(0))
         else:
             return torch.stack(hidden_state).squeeze().unsqueeze(0)
 
@@ -205,7 +220,9 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     # Update the weights of the Q network
     optimizer.step()
 
-def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_size=128, dense_size=128, dense_layers=2, reward_function='linear'):
+
+def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_size=128,
+              dense_size=128, dense_layers=2, reward_function='linear'):
     """
     Run the main loop of DQN training.
     """
@@ -217,17 +234,21 @@ def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN
     # Set the AlphaVantage API key
     AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
     # Retrieve and process data for the first ticker
-    data, scaled_data, scaler = get_and_process_data(tickers[0], interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
+    data, scaled_data, scaler = get_and_process_data(tickers[0], interval, AlphaVantage_Free_Key, threshhold,
+                                                     window_size, years, months)
 
     # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
-    env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(architecture=architecture, data=data, scaled_data = scaled_data, window_size=window_size, hidden_size=hidden_size, dense_size=dense_size, dense_layers=dense_layers, reward_function=reward_function)
+    env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(
+        architecture=architecture, data=data, scaled_data=scaled_data, window_size=window_size, hidden_size=hidden_size,
+        dense_size=dense_size, dense_layers=dense_layers, reward_function=reward_function)
     steps_done = 0
     iterator = 0
     # Loop through all tickers
     for ticker in range(len(tickers)):
         iterator += 1
         # Retrieve and process data for the current ticker
-        env.data, env.scaled_data, scaler = get_and_process_data(tickers[ticker], interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
+        env.data, env.scaled_data, scaler = get_and_process_data(tickers[ticker], interval, AlphaVantage_Free_Key,
+                                                                 threshhold, window_size, years, months)
         # Reset the environment and initialize the hidden states
         state = env.reset()
         hidden_state1, hidden_state2 = Q_network.init_hidden(1)
@@ -236,11 +257,13 @@ def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN
         while not done:
             steps_done += 1
             # Execute an action and get the next state, reward, and done flag
-            action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions, Q_network)
+            action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
+                                                                  num_actions, Q_network)
             next_state, reward, done = env.step(action)
             # Render the environment
             # Add the transition to the memory replay
-            memoryReplay.push((state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
+            memoryReplay.push(
+                (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
 
             # If the memory replay is full, sample a batch and update the Q-values
             if len(memoryReplay) >= BATCH_SIZE:
@@ -260,5 +283,4 @@ def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN
 if __name__ == "__main__":
     tickers = ["SPY"]
 
-    main_loop(tickers = tickers)
-
+    main_loop(tickers=tickers)
