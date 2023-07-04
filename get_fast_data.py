@@ -20,7 +20,7 @@ def get_indicator_data(symbol, interval, window_size, ti_function, **kwargs):
         return ti_function(symbol=symbol, interval=interval, **kwargs)[0]
 
 
-def get_most_recent_data(symbol, interval, api_key, window_size):
+def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_size=60):
     ts = TimeSeries(key=api_key, output_format='pandas')
     ti = TechIndicators(key=api_key, output_format='pandas')
     # Initialize an array of length 30 with NaN values
@@ -61,7 +61,7 @@ def get_most_recent_data(symbol, interval, api_key, window_size):
     }
 
     # dict that contains indicator names and the corresponding function calls
-    indicator_to_function = {
+    indicator_to_function1 = {
         'smawindow': lambda: ti.get_sma(symbol=symbol, interval=interval, time_period=window_size)[0]['SMA'][-1],
         'emawindow': lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=window_size)[0]['EMA'][-1],
         'sma200': lambda: ti.get_sma(symbol=symbol, interval=interval, time_period=200)[0]['SMA'][-1],
@@ -70,24 +70,64 @@ def get_most_recent_data(symbol, interval, api_key, window_size):
         'ema800' :lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=800)[0]['EMA'][-1],
         'vwap' :lambda: ti.get_vwap(symbol=symbol, interval=interval)[0]["VWAP"][-1],
         'rsi' :lambda: ti.get_rsi(symbol=symbol, interval=interval)[0]["RSI"][-1],
-        'macd' :lambda: ti.get_macd(symbol=symbol, interval=interval)[0]["MACD"][-1],
-        'macd_signal' :lambda: ti.get_macd(symbol=symbol, interval=interval)[0]["MACD_Signal"][-1],
-        'macd_hist' :lambda: ti.get_macd(symbol=symbol, interval=interval)[0]["MACD_Hist"][-1],
-        'bbands_upper' :lambda: ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Upper Band'][-1],
-        'bbands_middle' :lambda: ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Middle Band'][-1],
-        'bbands_lower' :lambda: ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Lower Band'][-1],
-        'adx' :lambda: ti.get_adx(symbol=symbol, interval=interval, time_period=window_size)[0]['ADX'][-1],
-        'cci' :lambda: ti.get_cci(symbol=symbol, interval=interval, time_period=window_size)[0]['CCI'][-1],
-        'aroon_up' :lambda: ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]['Aroon Up'][-1],
-        'aroon_down' :lambda: ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]['Aroon Down'][-1],
+        'adx' :lambda: ti.get_adx(symbol=symbol, interval=interval, time_period = 60)[0]['ADX'][-1],
+        'cci' :lambda: ti.get_cci(symbol=symbol, interval=interval, time_period = 60)[0]['CCI'][-1],
         'obv' :lambda: ti.get_obv(symbol=symbol, interval=interval)[0]['OBV'][-1],
-        'stoch_slowk' :lambda: ti.get_stoch(symbol=symbol, interval=interval)[0]['SlowK'][-1],
-        'stoch_slowd' :lambda: ti.get_stoch(symbol=symbol, interval=interval)[0]['SlowD'][-1],
-        'stochf_fastk' :lambda: ti.get_stochf(symbol=symbol, interval=interval)[0]['FastK'][-1],
-        'stochf_fastd' :lambda: ti.get_stochf(symbol=symbol, interval=interval)[0]['FastD'][-1],
-        'stochrsi_fastk' :lambda: ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastK'][-1],
-        'stochrsi_fastd' :lambda: ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastD'][-1]
     }
+
+    # dict that contains indicator names and the corresponding function calls
+    indicator_to_function2 = {
+        'vwap': lambda: ti.get_vwap(symbol=symbol, interval=interval)[0]["VWAP"][-1],
+        'rsi': lambda: ti.get_rsi(symbol=symbol, interval=interval)[0]["RSI"][-1],
+        'macd': lambda: ti.get_macd(symbol=symbol, interval=interval)[0],
+        'bbands': lambda: ti.get_bbands(symbol=symbol, interval=interval, time_period=60)[0],
+        'aroon': lambda: ti.get_aroon(symbol=symbol, interval=interval, time_period=60)[0],
+        'stoch': lambda: ti.get_stoch(symbol=symbol, interval=interval)[0],
+        'stochf': lambda: ti.get_stochf(symbol=symbol, interval=interval)[0],
+        'stochrsi': lambda: ti.get_stochrsi(symbol=symbol, interval=interval)[0],
+    }
+
+    indicator_key = {
+        'macd': {
+            'macd': 'MACD',
+            'macd_signal': 'MACD_Signal',
+            'macd_hist': 'MACD_Hist'
+        },
+        'bbands': {
+            'bbands_upper': 'Real Upper Band',
+            'bbands_middle': 'Real Middle Band',
+            'bbands_lower': 'Real Lower Band',
+        },
+        'aroon': {
+            'aroon_up': 'Aroon Up',
+            'aroon_down': 'Aroon Down',
+        },
+        'stoch': {
+            'stoch_slowk': 'SlowK',
+            'stoch_slowd': 'SlowD',
+        },
+        'stochf': {
+            'stochf_fastk': 'FastK',
+            'stochf_fastd': 'FastD',
+        },
+        'stochrsi': {
+            'stochrsi_fastk': 'FastK',
+            'stochrsi_fastd': 'FastD',
+        },
+    }
+
+    def call_function_and_store_results(function, keys):
+        data = function()
+        for indicator, key in keys.items():
+            result = data[key][-1]
+            fast_data[indicator_to_index[indicator]] = result
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(call_function_and_store_results, indicator_to_function2[func_name], indicator_key[func_name])
+            for func_name in ['macd', 'bbands', 'aroon', 'stoch', 'stochf', 'stochrsi']
+        ]
+        concurrent.futures.wait(futures)
 
     def store_result(indicator, future):
         try:
@@ -99,7 +139,7 @@ def get_most_recent_data(symbol, interval, api_key, window_size):
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = []
-        for indicator, function in indicator_to_function.items():
+        for indicator, function in indicator_to_function1.items():
             future = executor.submit(function)
             callback = partial(store_result, indicator)
             future.add_done_callback(callback)
@@ -108,7 +148,5 @@ def get_most_recent_data(symbol, interval, api_key, window_size):
 
     return fast_data
 
-
 if __name__ == "__main__":
-    # get data
-    df = get_most_recent_data(symbol="AAPL", interval="1min", api_key="A5QND05S0W7CU55E", window_size=14)
+    print(get_most_recent_data("AAPL", "1min"))

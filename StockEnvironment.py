@@ -184,8 +184,7 @@ class StockEnvironment:
         else:
             self.update_state()
 
-        reward = self.get_current_portfolio_value() - initial_portfolio_value
-        # reward = (((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value)) * 1000 # Scale reward to be between -100 and 100
+        reward = (((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value)) * 1000 # Scale reward to be between -100 and 100
         self.render(reward=reward, share_price = self.current_price)
         new_state = torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
         # done to tensor

@@ -205,7 +205,7 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     # Update the weights of the Q network
     optimizer.step()
 
-def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_size=128, dense_size=128, dense_layers=2, reward_function='linear'):
+def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=512, architecture='RNN', window_size=128, hidden_size=128, dense_size=64, dense_layers=3, reward_function='linear'):
     """
     Run the main loop of DQN training.
     """
@@ -258,7 +258,7 @@ def main_loop(tickers, num_episodes=100, C=10, BATCH_SIZE=524, architecture='RNN
 
 
 if __name__ == "__main__":
-    tickers = ["SPY"]
+    tickers = ["AAPL"]
 
     main_loop(tickers = tickers)
 

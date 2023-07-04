@@ -98,34 +98,40 @@ def get_all_data(symbol, interval, api_key, window_size):
     df_stock = get_stock_data(symbol, interval)
 
     # Calculate SMA, EMA and RSI
-    df_stock['smawindow'] = ti.get_sma(symbol=symbol, interval=interval, time_period=window_size)[0]
-    df_stock['emawindow'] = ti.get_ema(symbol=symbol, interval=interval, time_period=window_size)[0]
-    df_stock['sma50'] = ti.get_sma(symbol=symbol, interval=interval, time_period=50)[0]
-    df_stock['ema50'] = ti.get_ema(symbol=symbol, interval=interval, time_period=50)[0]
-    df_stock['sma200'] = ti.get_sma(symbol=symbol, interval=interval, time_period=200)[0]
-    df_stock['ema200'] = ti.get_ema(symbol=symbol, interval=interval, time_period=200)[0]
-    df_stock['vwap'] = ti.get_vwap(symbol=symbol, interval=interval)[0]
-    df_stock['rsi'] = ti.get_rsi(symbol=symbol, interval=interval)[0]
-    df_stock['macd'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD"]
-    df_stock['macd_signal'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD_Signal"]
-    df_stock['macd_hist'] = ti.get_macd(symbol=symbol, interval=interval)[0]["MACD_Hist"]
-    df_stock['bbands_upper'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Upper Band']
-    df_stock['bbands_middle'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Middle Band']
-    df_stock['bbands_lower'] = ti.get_bbands(symbol=symbol, interval=interval)[0]['Real Lower Band']
-    df_stock['adx'] = ti.get_adx(symbol=symbol, interval=interval, time_period=window_size)[0]
-    df_stock['cci'] = ti.get_cci(symbol=symbol, interval=interval, time_period=window_size)[0]
-    df_stock['aroon_up'] = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]['Aroon Up']
-    df_stock['aroon_down'] = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]['Aroon Down']
-    df_stock['obv'] = ti.get_obv(symbol=symbol, interval=interval)[0]
-    df_stock['stoch_slowk'] = ti.get_stoch(symbol=symbol, interval=interval)[0]['SlowK']
-    df_stock['stoch_slowd'] = ti.get_stoch(symbol=symbol, interval=interval)[0]['SlowD']
-    df_stock['stochf_fastk'] = ti.get_stochf(symbol=symbol, interval=interval)[0]['FastK']
-    df_stock['stochf_fastd'] = ti.get_stochf(symbol=symbol, interval=interval)[0]['FastD']
-    df_stock['stochrsi_fastk'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastK']
-    df_stock['stochrsi_fastd'] = ti.get_stochrsi(symbol=symbol, interval=interval)[0]['FastD']
+    sma_window, ema_window = ti.get_sma(symbol=symbol, interval=interval, time_period=window_size)[0], \
+    ti.get_ema(symbol=symbol, interval=interval, time_period=window_size)[0]
+    sma_200, ema_200 = ti.get_sma(symbol=symbol, interval=interval, time_period=200)[0], \
+    ti.get_ema(symbol=symbol, interval=interval, time_period=200)[0]
+    sma_800, ema_800 = ti.get_sma(symbol=symbol, interval=interval, time_period=800)[0], \
+    ti.get_ema(symbol=symbol, interval=interval, time_period=800)[0]
+    vwap = ti.get_vwap(symbol=symbol, interval=interval)[0]
+    rsi = ti.get_rsi(symbol=symbol, interval=interval, time_period=60)[0]
+    macd = ti.get_macd(symbol=symbol, interval=interval)[0]
+    bbands = ti.get_bbands(symbol=symbol, interval=interval, time_period=60)[0]
+    adx = ti.get_adx(symbol=symbol, interval=interval, time_period=window_size)[0]
+    cci = ti.get_cci(symbol=symbol, interval=interval, time_period=window_size)[0]
+    aroon = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0]
+    obv = ti.get_obv(symbol=symbol, interval=interval)[0]
+    stoch = ti.get_stoch(symbol=symbol, interval=interval)[0]
+    stochf = ti.get_stochf(symbol=symbol, interval=interval)[0]
+    stochrsi = ti.get_stochrsi(symbol=symbol, interval=interval)[0]
 
-    # print the dictionary of the columns to their index
-    print({name: i for i, name in enumerate(df_stock.columns)})
+    df_stock['smawindow'], df_stock['emawindow'] = sma_window, ema_window
+    df_stock['sma200'], df_stock['ema200'] = sma_200, ema_200
+    df_stock['sma800'], df_stock['ema800'] = sma_800, ema_800
+    df_stock['vwap'] = vwap
+    df_stock['rsi'] = rsi
+    df_stock['macd'], df_stock['macd_signal'], df_stock['macd_hist'] = macd["MACD"], macd["MACD_Signal"], macd[
+        "MACD_Hist"]
+    df_stock['bbands_upper'], df_stock['bbands_middle'], df_stock['bbands_lower'] = bbands['Real Upper Band'], bbands[
+        'Real Middle Band'], bbands['Real Lower Band']
+    df_stock['adx'] = adx
+    df_stock['cci'] = cci
+    df_stock['aroon_up'], df_stock['aroon_down'] = aroon['Aroon Up'], aroon['Aroon Down']
+    df_stock['obv'] = obv
+    df_stock['stoch_slowk'], df_stock['stoch_slowd'] = stoch['SlowK'], stoch['SlowD']
+    df_stock['stochf_fastk'], df_stock['stochf_fastd'] = stochf['FastK'], stochf['FastD']
+    df_stock['stochrsi_fastk'], df_stock['stochrsi_fastd'] = stochrsi['FastK'], stochrsi['FastD']
 
     # change the index to be numerical
     df_stock.reset_index(drop=True, inplace=True)
@@ -155,7 +161,6 @@ def get_and_process_data(ticker, interval, api_key, threshold, window_size, year
     # Flatten the window_size and num_features dimensions into one
     num_windows, _, _ = temp_df.shape
     temp_df_2d = temp_df.reshape(num_windows, -1)
-
     # Scale the DataFrame
     scaler = MinMaxScaler()
     scaled_temp_df_2d = scaler.fit_transform(temp_df_2d)
@@ -174,8 +179,6 @@ def get_and_process_data(ticker, interval, api_key, threshold, window_size, year
 
     return df, scaled_df, scaler
 
-
-
 if __name__ == "__main__":
     AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
     tickers = ["UBER"]
@@ -188,7 +191,5 @@ if __name__ == "__main__":
     # data = get_and_process_data(tickers[0], interval, AlphaVantage_Free_Key, threshhold, window_size, years, months)
 
     vwap = (ti.get_vwap(symbol=tickers[0], interval=interval))
-#     print the last value
-    print(vwap[0])
 
 
