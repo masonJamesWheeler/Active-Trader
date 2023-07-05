@@ -28,18 +28,8 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.hidden_size = hidden_size
 
-        # Choose architecture based on the input argument
-        if architecture == 'RNN':
-            RNN_Layer = nn.RNN
-        elif architecture == 'GRU':
-            RNN_Layer = nn.GRU
-        elif architecture == 'LSTM':
-            RNN_Layer = nn.LSTM
-        else:
-            raise ValueError(f'Invalid architecture: {architecture}')
-
-        self.rnn1 = RNN_Layer(input_size, hidden_size, batch_first=True)
-        self.rnn2 = RNN_Layer(hidden_size, hidden_size, batch_first=True)
+        self.rnn1 = nn.RNN(input_size, hidden_size, batch_first=True)
+        self.rnn2 = nn.RNN(hidden_size, hidden_size, batch_first=True)
         self.dropout1 = nn.Dropout(dropout_rate)  # Dropout after RNN layer 1
         self.dropout2 = nn.Dropout(dropout_rate)  # Dropout after RNN layer 2
 

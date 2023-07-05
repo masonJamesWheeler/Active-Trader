@@ -1,3 +1,8 @@
+import time
+from datetime import datetime
+
+from ib_insync import IB
+
 from LiveStockEnvironment import LiveStockEnvironment
 from StockEnvironment import ReplayMemory
 import numpy as np
@@ -20,6 +25,7 @@ import warnings
 from collections import namedtuple
 from StockEnvironment import EpsilonGreedyStrategy, ReplayMemory
 from LiveStockEnvironment import LiveStockEnvironment
+from IB_API import IB_CLIENT
 
 warnings.filterwarnings('ignore')
 
@@ -217,12 +223,30 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
               dense_size=128, dense_layers=2, reward_function='linear'):
     """
     Run the main loop of DQN training.
+
+    Args:
+        env: The trading environment.
+        BATCH_SIZE: The size of the batch for training the network.
+        architecture: The architecture of the network.
+        window_size: The size of the window for the network.
+        hidden_size: The size of the hidden layer for the network.
+        dense_size: The size of the dense layer for the network.
+        dense_layers: The number of dense layers in the network.
+        reward_function: The reward function for the network.
     """
     live_env = env
     ticker = env.ticker
-    # Set the AlphaVantage API key
-    AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
     C=10
+    Save_every=1000
+    # waste a minute
+    for i in range(60):
+        time.sleep(1)
+
+    live_env.mode = "slow"
+
+    state = live_env.get_state()
+
+    print("Training on ticker: {}".format(ticker))
 
     # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
     memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(
@@ -232,34 +256,45 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
     # Loop through all tickers
     while True:
         # Reset the environment and initialize the hidden states
-        state = env.initalize()
         hidden_state1, hidden_state2 = Q_network.init_hidden(1)
         steps_done = 0
         done = False
         # Loop until the episode is done
         while not done:
             steps_done += 1
+
             # Execute an action and get the next state, reward, and done flag
             action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
                                                                   num_actions, Q_network)
-            next_state, reward, done = env.step(action)
+            # print the dimensions of the state
+            print(state.shape)
+            print(hidden_state1.shape)
+            print(hidden_state2.shape)
+
+            next_state, reward, done = env.perform_trade_step(action)
+            print(next_state.shape)
             # Add the transition to the memory replay
             memoryReplay.push(
                 (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
+
             # If the memory replay is full, sample a batch and update the Q-values
             if len(memoryReplay) >= BATCH_SIZE:
                 transitions = memoryReplay.sample(BATCH_SIZE)
                 batch = Transition(*zip(*transitions))
                 update_Q_values(batch, Q_network, target_network, optimizer, architecture)
 
+
             # If the number of steps is a multiple of C, update the target network
             if steps_done % C == 0:
                 target_network.load_state_dict(Q_network.state_dict())
 
-            state = next_state
+            if steps_done % Save_every == 0:
+                torch.save(Q_network.state_dict(), "models/{}_{}.pth".format(ticker, steps_done))
 
+            state = next_state
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    live_env = LiveStockEnvironment(ticker=ticker, window_size=128, feature_size=30)
+    live_env = LiveStockEnvironment(ticker=ticker, window_size=128, feature_size=22)
+    live_env.start()
     main_loop(env = live_env)

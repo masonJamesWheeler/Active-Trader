@@ -13,6 +13,14 @@ class IB_CLIENT:
         for i in range(len(self.accountSummary)):
             self.accountSummaryDict[self.accountSummary[i].tag] = i
 
+        def account_update(account, tag, value, currency, modelCode):
+            # Update the account value
+            self.accountSummaryDict[tag] = value
+
+        self.ib.accountValueEvent += account_update
+        self.ib.reqAccountUpdates()  # start receiving account updates
+
+
     def buy_shares_mkt(self, ticker, quantity, algo_type='Adaptive', algo_params=None):
         contract = self.create_contract(ticker)
         baseOrder = MarketOrder('BUY', quantity)
@@ -63,6 +71,9 @@ class IB_CLIENT:
 if __name__ == "__main__":
     ib_client = IB_CLIENT()
     for i in range(1000):
-        print(ib_client.get_portfolio_value())
+        future = ib_client.ib.accountSummaryAsync()
+        accountSummary = future.result()  # get the account summary when it becomes available
+        print(accountSummary)
+
 
 

@@ -245,7 +245,7 @@ class StockEnvironment:
         If the current step is outside the length of the dataset, prints "End of dataset".
         """
         if self.current_step <= len(self.data) -1:
-            print(f'Step: {self.current_step}, Portfolio Value: {self.current_portfolio_value}, vs. Buy and Hold: {self.get_buy_and_hold_portfolio_value()}, Reward: {reward}', f'Share Price: {share_price}')
+            print(f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}')
         else:
             print('End of dataset')
 

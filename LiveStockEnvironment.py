@@ -1,23 +1,37 @@
-import asyncio
+import threading
 import datetime
 import math
 import random
-import threading
 import time
 from collections import deque
 import csv
+import pytz
+import alpaca.data
+import alpaca_trade_api
 import numpy as np
 import pandas as pd
 import torch
 from time import sleep
+from alpaca.trading import OrderRequest, OrderSide, OrderType, TimeInForce, OrderStatus
+
 from IB_API import IB_CLIENT
 from sklearn.preprocessing import MinMaxScaler
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
 from data import get_and_process_data
 from get_fast_data import get_most_recent_data
+from alpaca.trading.client import TradingClient
+from alpaca_trade_api.common import URL
+from alpaca_trade_api.stream import Stream
+from alpaca_trade_api.rest import REST, TimeFrame, APIError
+import alpaca_trade_api as tradeapi
 
-API_KEY = "A5QND05S0W7CU55E"
+# ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
+# ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"
+ALPHA_VANTAGE_API_KEY = "A5QND05S0W7CU55E"
+PAPER_ALPACA_KEY = "PKWE20UZ10HFIC7QLMAX"
+PAPER_ALPACA_SECRET_KEY = "SbPYFUJe4Ga9Nn96EF3DNIcKuatSlioXyRAbngOd"
+base_url = 'https://paper-api.alpaca.markets'
 
 class LiveStockEnvironment:
     def __init__(self, ticker, window_size, feature_size):
@@ -33,25 +47,29 @@ class LiveStockEnvironment:
         self.window_size = window_size
         self.feature_size = feature_size
         self.current_step = 0
-        self.current_price = 0
         self.batch_size = 512
         self.ticker = ticker
 
         self.ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
         self.ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
-        self.client = IB_CLIENT()
 
-        self.past_data, self.past_scaled_data, self.scaler = get_and_process_data(ticker=ticker, interval='1min', window_size=window_size, threshold=0.01,
-                                                  years=2,months=12, api_key=API_KEY)
         self.data = deque(maxlen=window_size)
-        self.cash = self.client.get_cash_balance()
-        self.shares = self.client.get_shares(ticker)
-        self.portfolio_value = self.client.get_portfolio_value()
-        self.indicators = np.zeroes([window_size])
+        self.portfolio_values = deque(maxlen=window_size)
 
-        self.update_indicators()
+        # self.update_indicators()
+        base_url = 'https://paper-api.alpaca.markets'
+        self.api = tradeapi.REST(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY, base_url='https://paper-api.alpaca.markets', api_version='v2')
+        self.trading_client = TradingClient(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY)
 
-    def get_new_state(self):
+        self.cash = 0
+        self.account = 0
+        self.positionSize = 0
+        self.asset_price = 0
+        self.portfolio_value = 0
+
+        self.mode = "FAST"
+
+    def run_listener(self):
         """
         Method to get the state vector which is fed to the trading agent. The state
         vector contains financial indicators for the current step along with ratios of
@@ -61,76 +79,55 @@ class LiveStockEnvironment:
         Returns:
             new_state (torch.tensor): Tensor representing the new state vector.
         """
-
-        # Compute current portfolio value
-        portfolio_value = self.client.get_portfolio_value()
-
-        # Compute the ratio of cash balance to portfolio value
-        cash_portfolio_ratio = self.client.get_cash_balance() / portfolio_value
-
-        # Compute the ratio of share portfolio value to portfolio value
-        share_portfolio_ratio = (portfolio_value - cash_portfolio_ratio) / portfolio_value
-
-        # Concatenate these ratios to the indicators
-        current_indicators = self.indicators
-        current_indicators = np.append(current_indicators, cash_portfolio_ratio)
-        current_indicators = np.append(current_indicators, share_portfolio_ratio)
-
-        # Append current_indicators to data
-        self.data.append(current_indicators)
-
-        # Create a numpy array of data
-        current_state = np.array(self.data)
-
-        # Split the state into two parts
-        first_30_features = current_state[:, :30]  # All rows, first 30 columns
-        last_2_features = current_state[:, 30:]  # All rows, last 2 columns
-
-        # Save original shape for reshaping after scaling
-        original_shape = first_30_features.shape
-
-        # Flatten first_30_features for scaling
-        first_30_features_flattened = first_30_features.flatten()
-
-        # Scale the features using the saved scaler
-        scaled_features = self.scaler.transform(first_30_features_flattened.reshape(1, -1))
-
-        # Reshape the scaled features back to their original shape
-        reshaped_scaled_features = scaled_features.reshape(original_shape)
-
-        # Concatenate the scaled features and last 2 features to get the final feature set
-        final_features = np.concatenate((reshaped_scaled_features, last_2_features), axis=1)
-
-        # Convert the final_features to PyTorch tensor and move it to CPU
-        new_state = torch.tensor(final_features, dtype=torch.float32).to('cpu')
-
-        return new_state
-
-    def update_indicators(self):
-        """
-        Updates the indicators every 60 seconds
-        """
         while True:
-            self.indicators = np.array(get_most_recent_data(self.ticker, '1min', API_KEY, 128)).reshape(1, -1)
-            sleep(60)
+            print("run_listener: starting")
 
-    def sample_action(self):
-        """
-        Returns a random action from the action space.
-        """
-        return random.choice(self.action_space)
+            snapshot = self.api.get_snapshot(self.ticker)
+            self.account = account = self.api.get_account()
+            self.portfolio_value = portfolioValue = float(account.portfolio_value)
+            self.portfolio_values.append(portfolioValue)
+            self.asset_price = assetPrice = float(snapshot.latest_trade.p)
+            self.cash = cash  = float(account.buying_power)
+            positions = self.api.list_positions()
+            if len(positions) > 0:
+                positionSize = float(positions[0].qty)
+            else:
+                positionSize = 0
 
-    def get_current_price(self):
-        """
-        Returns the current price of the stock.
-        """
-        return float(self.ts.get_quote_endpoint(symbol='AAPL')[0]['05. price'])
+            self.positionSize = positionSize
 
-    def get_current_portfolio_value(self):
-        """
-        Returns the current portfolio value, which is the sum of the current cash and the current value of the shares.
-        """
-        return self.client.get_portfolio_value()
+            newestDataPoint = np.array([
+                snapshot.latest_trade.p,
+                snapshot.latest_trade.s,
+                snapshot.minute_bar.open,
+                snapshot.minute_bar.high,
+                snapshot.minute_bar.low,
+                snapshot.minute_bar.close,
+                snapshot.minute_bar.volume,
+                snapshot.daily_bar.open,
+                snapshot.daily_bar.high,
+                snapshot.daily_bar.low,
+                snapshot.daily_bar.close,
+                snapshot.daily_bar.volume,
+                snapshot.daily_bar.vwap,
+                snapshot.prev_daily_bar.open,
+                snapshot.prev_daily_bar.high,
+                snapshot.prev_daily_bar.low,
+                snapshot.prev_daily_bar.close,
+                snapshot.prev_daily_bar.volume,
+                snapshot.prev_daily_bar.vwap,
+                portfolioValue,
+                 cash,
+                 positionSize], dtype=np.float32)
+            self.data.append(newestDataPoint)
+            if self.mode == "FAST":
+                sleep(0.1)
+                print(np.array(self.data).shape)
+            else:
+                sleep(1)
+
+    def get_state(self):
+        return torch.tensor(np.array(self.data).reshape((1, 128, 22)), dtype=torch.float32).to('cpu')
 
     def perform_trade_step(self, action):
         """
@@ -150,117 +147,83 @@ class LiveStockEnvironment:
         Returns:
             tuple: The new state, the reward from the action, and a boolean indicating if trading is done.
         """
-        current_share_price = self.get_current_price()
-        initial_portfolio_value = self.get_current_portfolio_value()
-        new_portfolio_value = initial_portfolio_value
-        self.cash = self.client.get_cash_balance()
-
+        # Cancel all orders
+        self.api.cancel_all_orders()
+        outOfBounds = False
         # Execute the trade based on the action
         if action == 0:
-            trade_executed = True
+            pass
         else:
-            for i in range(1, 11):
+            for i in range(1, 6):
                 percentage_to_trade = i * 0.05
                 if action == i:  # Buy shares
-                    if self.cash > current_share_price:
-                        shares_to_buy = int((self.cash * percentage_to_trade) / current_share_price)
-                        trade_id = self.client.buy_shares_mkt(self.ticker, shares_to_buy)
-                elif action == i + 5:  # Sell shares
-                    current_shares = self.client.get_shares(self.ticker)
+                    if self.cash > self.asset_price:
+                        shares_to_buy = int((self.cash * percentage_to_trade) / self.asset_price)
+                        order_id = self.api.submit_order(symbol=self.ticker, qty=shares_to_buy, side='buy',
+                                                         type='market', time_in_force='day')
+                        print("buy order submitted")
+                    else:
+                        outOfBounds = True
+            for i in range(6, 11):  # Sell shares
+                percentage_to_trade = (i - 5) * 0.05
+                if action == i:
+                    current_shares = self.positionSize
                     if current_shares > 0:
-                        shares_to_sell = int(current_shares * percentage_to_trade)
-                        trade_id = self.client.sell_shares_mkt(self.ticker, shares_to_sell)
+                        shares_to_sell = int(self.positionSize * percentage_to_trade)
+                        order_id = self.api.submit_order(symbol=self.ticker, qty=shares_to_sell, side='sell',
+                                                         type='market', time_in_force='day')
+                        print("sell order submitted")
+                    else:
+                        outOfBounds = True
 
         if action not in range(11):
             raise ValueError("Action not recognized")
 
-        # Start a timer
-        start_time = time.time()
+        if action == 0 or outOfBounds:
+            time.sleep(5)  # Wait for 10 seconds
+            reward = self.get_reward()  # calculate reward
+            next_state = self.get_state()  # calculate next state
+        else:
+            while True:
+                if order_id.filled_at is not None or (datetime.datetime.now(pytz.UTC) - order_id.submitted_at).total_seconds() > 10:
+                    # Wait until the order is filled or 10 seconds has passed
+                    reward = self.get_reward()  # calculate reward
+                    next_state = self.get_state()  # calculate next state
+                    break
 
-        portfolio_updated = False
-        trade_executed = False
-        while not trade_executed:
-            if self.client.executed_last_trade(trade_id):
-                trade_executed = True
+        return next_state, reward, False
 
-        # Check if portfolio value is updated and at least 2 seconds have passed
-        while not portfolio_updated and time.time() - start_time > 2:
-            portfolio_updated, new_portfolio_value = self.client.porfolio_value_updated(initial_portfolio_value)
 
-        # Calculate the reward
-        reward = new_portfolio_value - initial_portfolio_value
-        new_state = self.get_new_state()
-
-        trade_complete = False
-        self.render(reward, initial_portfolio_value, new_portfolio_value, action)
-        return new_state, reward, trade_complete
-
-    def render(self, reward, past_portfolio_value, portfolio_value, past_action):
+    def get_reward(self):
         """
-        Renders the current state of the environment.
+        Calculates the reward from the action taken in the current step.
 
-        Prints the old portfolio value, the action taken, and the new portfolio value, and the reward
+        Returns:
+            float: The reward for the current step.
         """
-        print(
-            f'Old Portfolio Value: {past_portfolio_value} | Action Taken: {past_action} | New Portfolio Value: {portfolio_value} | Reward: {reward}')
+        # Calculate the reward as the mean of the most recent 1/2th of portfolio values
+        if len(self.portfolio_values) < self.window_size / 2:
+            return 0
+        else:
+            oldest_half = np.array(self.portfolio_values)[:int(self.window_size / 2)]
+            newest_half = np.array(self.portfolio_values)[int(self.window_size / 2):]
+            return torch.tensor((np.mean(newest_half) - np.mean(oldest_half))/ np.mean(oldest_half)*100).to('cpu')
 
-    def initalize(self):
+    def render(self, reward):
         """
-        Initializes the live trader by getting the current cash balance and portfolio value. It calculates
-        the cash to portfolio ratio and share to portfolio ratio and appends these to the past data. The
-        method then waits until the next minute before starting live trading.
-
-        Note:
-            This function assumes that self.client is an object with methods to fetch current cash balance
-            and portfolio value. It also assumes that self.past_data is a numpy array representing past
-            trading data.
+        Renders the environment.
         """
+        print(f"Portfolio value: {self.portfolio_value}, Cash: {self.cash}, Position size: {self.positionSize}, Asset price: {self.asset_price}, Reward: {reward}")
 
-        # Get current date and time
-        start_time = datetime.datetime.now()
-
-        # Fetch current cash balance
-        cash_value = self.client.get_cash_balance()
-
-        # Fetch current portfolio value
-        portfolio_value = self.client.get_portfolio_value()
-
-        # Compute value of shares in the portfolio
-        share_value = portfolio_value - cash_value
-
-        # Compute ratio of cash value to portfolio value
-        cash_portfolio_ratio = cash_value / portfolio_value
-
-        # Compute ratio of share value to portfolio value
-        share_portfolio_ratio = share_value / portfolio_value
-
-        # Get the last window of past data
-        last_window = self.past_data[-1]
-
-        # Iterate over each element in the last window of past data
-        for i in range(last_window.shape[0]):
-            # Get the current array
-            array = self.past_data[-1, i]
-
-            # Append the cash portfolio ratio to the current array
-            array = np.append(array, cash_portfolio_ratio)
-
-            # Append the share portfolio ratio to the current array
-            array = np.append(array, share_portfolio_ratio)
-
-            # Append the updated array to the deque
-            self.data.append(array)
-
-        # Print initialization completion message
-        print('Live Trader Initialized')
-
-        # Pause execution until the start of the next minute or at least 60 seconds have passed since start_time
-        while datetime.datetime.now().minute == start_time.minute and (
-                datetime.datetime.now() - start_time).seconds < 60:
-            pass
+    def start(self):
+        """
+        Starts the environment.
+        """
+        self.thread = threading.Thread(target=self.run_listener)
+        self.thread.daemon = True
+        self.thread.start()
 
 
-
-
-
-
+if __name__ == '__main__':
+    # Create a LiveTrader object
+    trader = LiveStockEnvironment('AAPL', 128,30)
