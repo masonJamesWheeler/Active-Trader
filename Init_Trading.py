@@ -1,5 +1,7 @@
 import time
+from datetime import datetime
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,10 +11,8 @@ from collections import namedtuple
 from StockEnvironment import EpsilonGreedyStrategy, ReplayMemory
 from LiveStockEnvironment import LiveStockEnvironment
 from alpaca.trading.client import TradingClient
-from alpaca_trade_api.common import URL
-from alpaca_trade_api.stream import Stream
-from alpaca_trade_api.rest import REST, TimeFrame, APIError
 import alpaca_trade_api as tradeapi
+import pytz
 
 # ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
 # ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"
@@ -224,56 +224,75 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
         dense_layers: The number of dense layers in the network.
         reward_function: The reward function for the network.
     """
+    # Initialize the environment and set the mode to "slow"
     live_env = env
-    ticker = env.ticker
-    C=10
-    Save_every=1000
-
     live_env.initialize()
-
     live_env.mode = "slow"
 
+    # Set the constants for saving and updating the network
+    C = 10
+    Save_every = 1000
+
+    # Get the initial state of the environment
     state = live_env.get_state()
 
-    # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
+
+    # Initialize the memory replay, Q-network, target network, optimizer, and hidden states
     memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(
         architecture=architecture, hidden_size=hidden_size, dense_size=dense_size,
         dense_layers=dense_layers)
 
-    # Loop through all tickers
+    hidden_state1, hidden_state2 = Q_network.init_hidden(1)
+    steps_done = 0
+
+    clock = api.get_clock()
+    marketNextClose = clock.next_close.replace(tzinfo=pytz.UTC).timestamp()
+    marketNextOpen = clock.next_open.replace(tzinfo=pytz.UTC).timestamp()
+    current_time = time.time()
+
+    # Inner loop for each episode, check if we are within the last minute of close and if so, break
     while True:
-        # Reset the environment and initialize the hidden states
-        hidden_state1, hidden_state2 = Q_network.init_hidden(1)
-        steps_done = 0
-        done = False
+        # Get the current time as a Timestamp object
 
-        while not done:
-            steps_done += 1
+        # Check if we are within one minute of the market closing time or if the market is closed
+        # if (marketNextClose - current_time <= 60) or (current_time < marketNextOpen or current_time > marketNextClose):
+        #     # Wait for the market to open
+        #     print("Waiting for the market to open...")
+        #     while current_time < marketNextOpen:
+        #         time.sleep(60)  # Sleep for 60 seconds
+        #         current_time = time.time()
+        #     # Update the market open and close times
+        #     clock = api.get_clock()
+        #     marketNextClose = clock.next_close.replace(tzinfo=pytz.UTC).timestamp()
+        #     marketNextOpen = clock.next_open.replace(tzinfo=pytz.UTC).timestamp()
 
-            # Execute an action and get the next state, reward, and done flag
-            action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
-                                                                  num_actions, Q_network)
+        steps_done += 1
+        # Execute an action and get the next state, reward
+        action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
+                                                              num_actions, Q_network)
+        next_state, reward, done = env.perform_trade_step(action)
 
-            next_state, reward, done = env.perform_trade_step(action)
-            # Add the transition to the memory replay
-            memoryReplay.push(
-                (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
+        # Add the transition to the memory replay
+        memoryReplay.push(
+            (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
 
-            # If the memory replay is full, sample a batch and update the Q-values
-            if len(memoryReplay) >= BATCH_SIZE:
-                transitions = memoryReplay.sample(BATCH_SIZE)
-                batch = Transition(*zip(*transitions))
-                update_Q_values(batch, Q_network, target_network, optimizer, architecture)
+        # If the memory replay is full, sample a batch and update the Q-values
+        if len(memoryReplay) >= BATCH_SIZE:
+            transitions = memoryReplay.sample(BATCH_SIZE)
+            batch = Transition(*zip(*transitions))
+            update_Q_values(batch, Q_network, target_network, optimizer, architecture)
 
+        # If the number of steps is a multiple of C, update the target network
+        if steps_done % C == 0:
+            target_network.load_state_dict(Q_network.state_dict())
 
-            # If the number of steps is a multiple of C, update the target network
-            if steps_done % C == 0:
-                target_network.load_state_dict(Q_network.state_dict())
+        # If the number of steps is a multiple of Save_every, save the Q-network and the Target-network
+        if steps_done % Save_every == 0:
+            torch.save(Q_network.state_dict(), "models/{}_{}.pth".format(env.ticker, steps_done))
+            torch.save(target_network.state_dict(), "models/{}_target_{}.pth".format(env.ticker, steps_done))
 
-            if steps_done % Save_every == 0:
-                torch.save(Q_network.state_dict(), "models/{}_{}.pth".format(ticker, steps_done))
-
-            state = next_state
+        # Update the current state
+        state = next_state
 
 if __name__ == "__main__":
     ticker = "AAPL"

@@ -1,30 +1,18 @@
 import logging
-import queue
 import threading
 import datetime
-import math
-import random
 import time
 from collections import deque
 import csv
 import pytz
-import alpaca.data
-import alpaca_trade_api
 import numpy as np
 import pandas as pd
 import torch
 from time import sleep
-from alpaca.trading import OrderRequest, OrderSide, OrderType, TimeInForce, OrderStatus
-from IB_API import IB_CLIENT
-from sklearn.preprocessing import MinMaxScaler
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
-from data import get_and_process_data
 from get_fast_data import get_most_recent_data
 from alpaca.trading.client import TradingClient
-from alpaca_trade_api.common import URL
-from alpaca_trade_api.stream import Stream
-from alpaca_trade_api.rest import REST, TimeFrame, APIError
 import alpaca_trade_api as tradeapi
 
 # ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
