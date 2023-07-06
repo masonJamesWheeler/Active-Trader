@@ -2,7 +2,9 @@ import unittest
 import numpy as np
 from collections import deque
 from tensorflow import keras
-from active_trader import StockEnv, DQNAgent  # Replace `your_module` with the module where you have defined these classes
+
+from Environment.StockEnvironment import StockEnvironment
+
 
 class TestTradingEnvironment(unittest.TestCase):
     def setUp(self):
@@ -10,7 +12,7 @@ class TestTradingEnvironment(unittest.TestCase):
         self.data = np.random.rand(100, 30, 14)  # Random stock data
         self.cash = 1000  # Initial cash
         self.shares = 10  # Initial shares
-        self.env = StockEnv(self.data, self.cash, self.shares)  # Environment
+        self.env = StockEnvironment(self.data, self.cash, self.shares)  # Environment
         self.agent = DQNAgent(4, 21)  # DQN Agent
 
     def test_environment_init(self):

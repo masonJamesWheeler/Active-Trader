@@ -1,12 +1,8 @@
 import numpy as np
-import pandas as pd
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
-import time
 import concurrent.futures
 from functools import partial
-
-
 ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
 ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
 

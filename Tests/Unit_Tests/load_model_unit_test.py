@@ -2,10 +2,10 @@ import sys
 import unittest
 import numpy as np
 import os
-sys.path.append('../')
-from model_utils import load_model_from_checkpoint, load_hyperparameters_from_json, dense_model, conv_model, lstm_model
-from data import get_and_process_data
 import matplotlib.pyplot as plt
+
+from Data.Data import get_and_process_data
+
 AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
 
 class TestDenseModel(unittest.TestCase):

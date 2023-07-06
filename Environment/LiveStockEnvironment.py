@@ -11,9 +11,9 @@ import torch
 from time import sleep
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
-from get_fast_data import get_most_recent_data
 from alpaca.trading.client import TradingClient
 import alpaca_trade_api as tradeapi
+from Data.Get_Fast_Data import get_most_recent_data
 
 # ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
 # ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"

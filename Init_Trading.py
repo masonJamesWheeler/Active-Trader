@@ -8,11 +8,11 @@ import torch.nn.functional as F
 import torch.optim as optim
 import warnings
 from collections import namedtuple
-from StockEnvironment import EpsilonGreedyStrategy, ReplayMemory
-from LiveStockEnvironment import LiveStockEnvironment
 from alpaca.trading.client import TradingClient
 import alpaca_trade_api as tradeapi
 import pytz
+from Environment.LiveStockEnvironment import LiveStockEnvironment
+from Environment.StockEnvironment import ReplayMemory
 
 # ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
 # ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"
@@ -255,16 +255,16 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
         # Get the current time as a Timestamp object
 
         # Check if we are within one minute of the market closing time or if the market is closed
-        # if (marketNextClose - current_time <= 60) or (current_time < marketNextOpen or current_time > marketNextClose):
-        #     # Wait for the market to open
-        #     print("Waiting for the market to open...")
-        #     while current_time < marketNextOpen:
-        #         time.sleep(60)  # Sleep for 60 seconds
-        #         current_time = time.time()
-        #     # Update the market open and close times
-        #     clock = api.get_clock()
-        #     marketNextClose = clock.next_close.replace(tzinfo=pytz.UTC).timestamp()
-        #     marketNextOpen = clock.next_open.replace(tzinfo=pytz.UTC).timestamp()
+        if (marketNextClose - current_time <= 60) or (current_time < marketNextOpen or current_time > marketNextClose):
+            # Wait for the market to open
+            print("Waiting for the market to open...")
+            while current_time < marketNextOpen:
+                time.sleep(60)  # Sleep for 60 seconds
+                current_time = time.time()
+            # Update the market open and close times
+            clock = api.get_clock()
+            marketNextClose = clock.next_close.replace(tzinfo=pytz.UTC).timestamp()
+            marketNextOpen = clock.next_open.replace(tzinfo=pytz.UTC).timestamp()
 
         steps_done += 1
         # Execute an action and get the next state, reward

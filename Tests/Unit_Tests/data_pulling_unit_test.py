@@ -6,8 +6,10 @@ import requests
 from sklearn.preprocessing import MinMaxScaler
 import os
 import sys
+
+from Data.Data import get_stock_data, get_all_data
+
 sys.path.append('../')
-from data import get_all_data, get_stock_data
 
 
 base_url = 'https://www.alphavantage.co/query?'
