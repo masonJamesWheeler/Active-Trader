@@ -11,14 +11,19 @@ from collections import namedtuple
 from alpaca.trading.client import TradingClient
 import alpaca_trade_api as tradeapi
 import pytz
+from dotenv import load_dotenv
+import os
 from Environment.LiveStockEnvironment import LiveStockEnvironment
 from Environment.StockEnvironment import ReplayMemory
 
-# ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
-# ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"
-ALPHA_VANTAGE_API_KEY = "A5QND05S0W7CU55E"
-PAPER_ALPACA_KEY = "PKWE20UZ10HFIC7QLMAX"
-PAPER_ALPACA_SECRET_KEY = "SbPYFUJe4Ga9Nn96EF3DNIcKuatSlioXyRAbngOd"
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the API keys from environment variables
+alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+paper_alpaca_key = os.getenv("PAPER_ALPACA_KEY")
+paper_alpaca_secret_key = os.getenv("PAPER_ALPACA_SECRET_KEY")
+
 base_url = 'https://paper-api.alpaca.markets'
 
 warnings.filterwarnings('ignore')
@@ -27,9 +32,9 @@ Transition = namedtuple('Transition',
                         ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward',
                          'next_hidden_state1', 'next_hidden_state2'))
 
-api = tradeapi.REST(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY, base_url='https://paper-api.alpaca.markets',
+api = tradeapi.REST(paper_alpaca_key, paper_alpaca_secret_key, base_url='https://paper-api.alpaca.markets',
                          api_version='v2')
-trading_client = TradingClient(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY)
+trading_client = TradingClient(paper_alpaca_key, paper_alpaca_secret_key)
 
 class DQN(nn.Module):
     def __init__(self, input_size, hidden_size, num_actions, architecture, dense_layers, dense_size, dropout_rate):

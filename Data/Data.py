@@ -10,10 +10,22 @@ from keras.utils import to_categorical
 from sklearn.preprocessing import MinMaxScaler
 from time import sleep
 from datetime import datetime
-scaler = MinMaxScaler(feature_range=(0, 1))
-ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
-ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
+from dotenv import load_dotenv
+import os
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the API keys from environment variables
+alpaca_key = os.getenv("ALPACA_KEY")
+alpaca_secret_key = os.getenv("ALPACA_SECRET_KEY")
+alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+paper_alpaca_key = os.getenv("PAPER_ALPACA_KEY")
+paper_alpaca_secret_key = os.getenv("PAPER_ALPACA_SECRET_KEY")
+
+scaler = MinMaxScaler(feature_range=(0, 1))
+ts = TimeSeries(key=alpha_vantage_api_key, output_format='pandas')
+ti = TechIndicators(key=alpha_vantage_api_key, output_format='pandas')
 
 # Alpha Vantage Base URL
 base_url = 'https://www.alphavantage.co/query?'
@@ -180,7 +192,7 @@ def get_and_process_data(ticker, interval, api_key, threshold, window_size, year
     return df, scaled_df, scaler
 
 if __name__ == "__main__":
-    AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
+    AlphaVantage_Paid_Key = "A5QND05S0W7CU55E"
     tickers = ["UBER"]
     interval = '1min'
     threshhold = 0.01

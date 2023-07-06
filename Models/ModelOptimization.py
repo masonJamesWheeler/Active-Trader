@@ -1,26 +1,4 @@
-import numpy as np           # Handle matrices
-import matplotlib.pyplot as plt # Display graphs
-
-from collections import deque
-
-import base64
-import imageio
-import IPython
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
-import PIL.Image
-import torch.nn as nn
-import torch.optim as optim
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-
-import random
-from collections import namedtuple
-import warnings
+# We will use this file to store all the parameters that we will use to optimize our models
 
 def squared_portfolio_difference(post_value, pre_value):
     sign = 1 if post_value - pre_value > 0 else -1

@@ -5,7 +5,6 @@ from tensorflow import keras
 
 from Environment.StockEnvironment import StockEnvironment
 
-
 class TestTradingEnvironment(unittest.TestCase):
     def setUp(self):
         """Set up a trading environment and a DQN agent before each test."""

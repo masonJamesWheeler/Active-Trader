@@ -3,8 +3,17 @@ from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
 import concurrent.futures
 from functools import partial
-ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
-ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the API key from environment variables
+alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+
+ts = TimeSeries(key=alpha_vantage_api_key, output_format='pandas')
+ti = TechIndicators(key=alpha_vantage_api_key, output_format='pandas')
 
 def get_indicator_data(symbol, interval, window_size, ti_function, **kwargs):
     """

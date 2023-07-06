@@ -13,7 +13,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import warnings
 from collections import namedtuple
-
 from Data.Data import get_and_process_data
 from Environment.StockEnvironment import StockEnvironment, ReplayMemory
 from Models.DQN_Agent import DQN

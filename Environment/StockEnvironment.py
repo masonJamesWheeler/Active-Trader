@@ -8,8 +8,6 @@ import pandas as pd
 import torch
 import os
 
-
-
 class StockEnvironment:
     def __init__(self, starting_cash, starting_shares, data, scaled_data, window_size, feature_size, price_column,
                  reward_function):

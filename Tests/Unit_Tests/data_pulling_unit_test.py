@@ -6,14 +6,19 @@ import requests
 from sklearn.preprocessing import MinMaxScaler
 import os
 import sys
-
+from dotenv import load_dotenv
 from Data.Data import get_stock_data, get_all_data
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the API key from environment variables
+alpha_vantage_free_key = os.getenv("AlphaVantage_Free_Key")
 
 sys.path.append('../')
 
-
 base_url = 'https://www.alphavantage.co/query?'
-AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
+
 
 class TestGetStockData(unittest.TestCase):
     def setUp(self):

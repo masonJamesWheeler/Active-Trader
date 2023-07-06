@@ -9,17 +9,23 @@ import numpy as np
 import pandas as pd
 import torch
 from time import sleep
+
+from alpaca.trading import TradingClient
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
-from alpaca.trading.client import TradingClient
 import alpaca_trade_api as tradeapi
+from dotenv import load_dotenv
+import os
 from Data.Get_Fast_Data import get_most_recent_data
 
-# ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
-# ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"
-ALPHA_VANTAGE_API_KEY = "A5QND05S0W7CU55E"
-PAPER_ALPACA_KEY = "PKWE20UZ10HFIC7QLMAX"
-PAPER_ALPACA_SECRET_KEY = "SbPYFUJe4Ga9Nn96EF3DNIcKuatSlioXyRAbngOd"
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the API keys from environment variables
+alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+paper_alpaca_key = os.getenv("PAPER_ALPACA_KEY")
+paper_alpaca_secret_key = os.getenv("PAPER_ALPACA_SECRET_KEY")
+
 base_url = 'https://paper-api.alpaca.markets'
 
 class LiveStockEnvironment:
@@ -44,8 +50,8 @@ class LiveStockEnvironment:
         self.alpha_vantage_data = None
 
         # self.update_indicators()
-        self.api = tradeapi.REST(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY, base_url='https://paper-api.alpaca.markets', api_version='v2')
-        self.trading_client = TradingClient(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY)
+        self.api = tradeapi.REST(paper_alpaca_key, paper_alpaca_secret_key, base_url='https://paper-api.alpaca.markets', api_version='v2')
+        self.trading_client = TradingClient(paper_alpaca_key, paper_alpaca_secret_key)
 
         self.cash = 0
         self.account = 0
