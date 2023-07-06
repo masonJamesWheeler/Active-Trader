@@ -1,22 +1,5 @@
 import time
-from datetime import datetime
-
-from ib_insync import IB
-
-from LiveStockEnvironment import LiveStockEnvironment
-from StockEnvironment import ReplayMemory
 import numpy as np
-import torch
-
-import base64
-import collections
-import imageio
-import IPython
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
-import PIL.Image
-import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,13 +8,28 @@ import warnings
 from collections import namedtuple
 from StockEnvironment import EpsilonGreedyStrategy, ReplayMemory
 from LiveStockEnvironment import LiveStockEnvironment
-from IB_API import IB_CLIENT
+from alpaca.trading.client import TradingClient
+from alpaca_trade_api.common import URL
+from alpaca_trade_api.stream import Stream
+from alpaca_trade_api.rest import REST, TimeFrame, APIError
+import alpaca_trade_api as tradeapi
+
+# ALPACA_KEY = "AKL0IN1Y4EG6A2Y37EQ1"
+# ALPACA_SECRET_KEY = "NgyLanEH1hTo8r7xrlaBeSnefijyZLDpvvjxjAZl"
+ALPHA_VANTAGE_API_KEY = "A5QND05S0W7CU55E"
+PAPER_ALPACA_KEY = "PKWE20UZ10HFIC7QLMAX"
+PAPER_ALPACA_SECRET_KEY = "SbPYFUJe4Ga9Nn96EF3DNIcKuatSlioXyRAbngOd"
+base_url = 'https://paper-api.alpaca.markets'
 
 warnings.filterwarnings('ignore')
 
 Transition = namedtuple('Transition',
                         ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward',
                          'next_hidden_state1', 'next_hidden_state2'))
+
+api = tradeapi.REST(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY, base_url='https://paper-api.alpaca.markets',
+                         api_version='v2')
+trading_client = TradingClient(PAPER_ALPACA_KEY, PAPER_ALPACA_SECRET_KEY)
 
 class DQN(nn.Module):
     def __init__(self, input_size, hidden_size, num_actions, architecture, dense_layers, dense_size, dropout_rate):
@@ -105,16 +103,15 @@ def initialize(architecture, hidden_size, dense_size, dense_layers):
     Initialize environment, DQN networks, optimizer and memory replay.
     """
     window_size = 128
-    price_column = 3
-    feature_size = 30
+    feature_size = 46
     num_actions = 11
     dropout_rate = 0.2
 
     memoryReplay = ReplayMemory(100000)
-    Q_network = DQN(input_size=feature_size + 2, hidden_size=hidden_size, num_actions=num_actions,
+    Q_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions,
                     architecture=architecture, dense_layers=dense_layers, dense_size=dense_size,
                     dropout_rate=dropout_rate)
-    target_network = DQN(input_size=feature_size + 2, hidden_size=hidden_size, num_actions=num_actions,
+    target_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions,
                          architecture=architecture, dense_layers=dense_layers, dense_size=dense_size,
                          dropout_rate=dropout_rate)
     target_network.load_state_dict(Q_network.state_dict())
@@ -143,7 +140,6 @@ def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions,
             Q_values, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
             action = torch.argmax(Q_values).item()
     return action, hidden_state1, hidden_state2
-
 
 def update_Q_values(batch, Q_network, target_network, optimizer, architecture, gamma=0.99):
     """
@@ -192,17 +188,11 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     # Compute current Q values
     current_Q_values, _, _ = Q_network(state_batch, hidden_state1_batch, hidden_state2_batch)
 
-    # For LSTM architecture, remove unnecessary dimension
-    if architecture == 'LSTM':
-        current_Q_values = current_Q_values.squeeze()
     # Gather the Q values for the actions taken
     current_Q_values = current_Q_values.gather(1, action_batch.view(-1, 1)).squeeze()
 
     # Compute Q values for next states
     next_Q_values, _, _ = target_network(next_state_batch, next_hidden_state1_batch, next_hidden_state2_batch)
-    # For LSTM architecture, remove unnecessary dimension
-    if architecture == 'LSTM':
-        next_Q_values = next_Q_values.squeeze()
     # Detach the Q values and get the maximum Q value for each next state
     next_Q_values = next_Q_values.max(1)[0].detach()
 
@@ -238,15 +228,12 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
     ticker = env.ticker
     C=10
     Save_every=1000
-    # waste a minute
-    for i in range(60):
-        time.sleep(1)
+
+    live_env.initialize()
 
     live_env.mode = "slow"
 
     state = live_env.get_state()
-
-    print("Training on ticker: {}".format(ticker))
 
     # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
     memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(
@@ -259,20 +246,15 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
         hidden_state1, hidden_state2 = Q_network.init_hidden(1)
         steps_done = 0
         done = False
-        # Loop until the episode is done
+
         while not done:
             steps_done += 1
 
             # Execute an action and get the next state, reward, and done flag
             action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
                                                                   num_actions, Q_network)
-            # print the dimensions of the state
-            print(state.shape)
-            print(hidden_state1.shape)
-            print(hidden_state2.shape)
 
             next_state, reward, done = env.perform_trade_step(action)
-            print(next_state.shape)
             # Add the transition to the memory replay
             memoryReplay.push(
                 (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
@@ -295,6 +277,6 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    live_env = LiveStockEnvironment(ticker=ticker, window_size=128, feature_size=22)
+    live_env = LiveStockEnvironment(ticker=ticker, window_size=128, feature_size=46)
     live_env.start()
     main_loop(env = live_env)

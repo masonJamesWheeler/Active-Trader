@@ -24,7 +24,7 @@ def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_s
     ts = TimeSeries(key=api_key, output_format='pandas')
     ti = TechIndicators(key=api_key, output_format='pandas')
     # Initialize an array of length 30 with NaN values
-    fast_data = np.full((30,), np.nan)
+    fast_data = np.full((25,), np.nan)
 
     result, _ = ts.get_quote_endpoint(symbol=symbol)
     # extract the 2-6th values from the array
@@ -33,31 +33,31 @@ def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_s
 
     # Assume we have a mapping from indicator names to their index in the array
     indicator_to_index = {
-        'smawindow': 5,
-        'emawindow': 6,
-        'sma200': 7,
-        'ema200': 8,
-        'sma800': 9,
-        'ema800': 10,
-        'vwap': 11,
-        'rsi': 12,
-        'macd': 13,
-        'macd_signal': 14,
-        'macd_hist': 15,
-        'bbands_upper': 16,
-        'bbands_middle': 17,
-        'bbands_lower': 18,
-        'adx': 19,
-        'cci': 20,
-        'aroon_up': 21,
-        'aroon_down': 22,
-        'obv': 23,
-        'stoch_slowk': 24,
-        'stoch_slowd': 25,
-        'stochf_fastk': 26,
-        'stochf_fastd': 27,
-        'stochrsi_fastk': 28,
-        'stochrsi_fastd': 29,
+        'smawindow': 0,
+        'emawindow': 1,
+        'sma200': 2,
+        'ema200': 3,
+        'sma800': 4,
+        'ema800': 5,
+        'vwap': 6,
+        'rsi': 7,
+        'macd': 8,
+        'macd_signal': 9,
+        'macd_hist': 10,
+        'bbands_upper': 11,
+        'bbands_middle': 12,
+        'bbands_lower': 13,
+        'adx': 14,
+        'cci': 15,
+        'aroon_up': 16,
+        'aroon_down': 17,
+        'obv': 18,
+        'stoch_slowk': 19,
+        'stoch_slowd': 20,
+        'stochf_fastk': 21,
+        'stochf_fastd': 22,
+        'stochrsi_fastk': 23,
+        'stochrsi_fastd': 24,
     }
 
     # dict that contains indicator names and the corresponding function calls
@@ -146,7 +146,7 @@ def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_s
             futures.append(future)
         concurrent.futures.wait(futures)
 
-    return fast_data
+    return np.array(fast_data)
 
 if __name__ == "__main__":
     print(get_most_recent_data("AAPL", "1min"))
