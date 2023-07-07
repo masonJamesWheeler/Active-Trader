@@ -1,3 +1,4 @@
+import collections
 import time
 from datetime import datetime
 import numpy as np
@@ -231,6 +232,7 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
     """
     # Initialize the environment and set the mode to "slow"
     live_env = env
+
     live_env.initialize()
     live_env.mode = "slow"
 
@@ -241,13 +243,17 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
     # Get the initial state of the environment
     state = live_env.get_state()
 
-
     # Initialize the memory replay, Q-network, target network, optimizer, and hidden states
     memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize(
         architecture=architecture, hidden_size=hidden_size, dense_size=dense_size,
         dense_layers=dense_layers)
 
     hidden_state1, hidden_state2 = Q_network.init_hidden(1)
+
+    # If the weights exist, then load them
+    if os.path.exists("Models/{}.pth".format(ticker)):
+        Q_network.load_weights(ticker=ticker, target=False)
+        target_network.load_weights(ticker=ticker, target=True)
     steps_done = 0
 
     clock = api.get_clock()
@@ -255,31 +261,44 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
     marketNextOpen = clock.next_open.replace(tzinfo=pytz.UTC).timestamp()
     current_time = time.time()
 
+    # Initialize a deque to store delayed states and actions
+    delay_length = 20
+    delayed_states = collections.deque(maxlen=delay_length)
+    delayed_actions = collections.deque(maxlen=delay_length)
+    delayed_hidden1 = collections.deque(maxlen=delay_length)
+    delayed_hidden2 = collections.deque(maxlen=delay_length)
+    delayed_x_values = collections.deque(maxlen=delay_length)
+
     # Inner loop for each episode, check if we are within the last minute of close and if so, break
     while True:
-        # Get the current time as a Timestamp object
-
-        # Check if we are within one minute of the market closing time or if the market is closed
-        if (marketNextClose - current_time <= 60) or (current_time < marketNextOpen or current_time > marketNextClose):
-            # Wait for the market to open
-            print("Waiting for the market to open...")
-            while current_time < marketNextOpen:
-                time.sleep(60)  # Sleep for 60 seconds
-                current_time = time.time()
-            # Update the market open and close times
-            clock = api.get_clock()
-            marketNextClose = clock.next_close.replace(tzinfo=pytz.UTC).timestamp()
-            marketNextOpen = clock.next_open.replace(tzinfo=pytz.UTC).timestamp()
-
         steps_done += 1
         # Execute an action and get the next state, reward
         action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
                                                               num_actions, Q_network)
-        next_state, reward, done = env.perform_trade_step(action)
+        next_state, x_value, done = env.perform_trade_step(action)
 
-        # Add the transition to the memory replay
-        memoryReplay.push(
-            (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
+        # Store the state, action and hidden states in the deques
+        delayed_states.append(state)
+        delayed_actions.append(action)
+        delayed_hidden1.append(hidden_state1)
+        delayed_hidden2.append(hidden_state2)
+        delayed_x_values.append(x_value)
+
+        if len(delayed_states) == delay_length:
+            # We now have enough steps to calculate a delayed reward
+            delayed_state = delayed_states[0]
+            delayed_action = delayed_actions[0]
+            delayed_h1 = delayed_hidden1[0]
+            delayed_h2 = delayed_hidden2[0]
+            delayed_x_value = delayed_x_values[0]
+
+            # Calculate the delayed reward
+            reward = ((x_value - delayed_x_value)/ delayed_x_value) * 100
+            print(reward)
+
+            # Add the transition to the memory replay
+            memoryReplay.push(
+                (delayed_state, delayed_h1, delayed_h2, delayed_action, state, reward, hidden_state1, hidden_state2))
 
         # If the memory replay is full, sample a batch and update the Q-values
         if len(memoryReplay) >= BATCH_SIZE:
@@ -293,8 +312,8 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
 
         # If the number of steps is a multiple of Save_every, save the Q-network and the Target-network
         if steps_done % Save_every == 0:
-            torch.save(Q_network.state_dict(), "models/{}_{}.pth".format(env.ticker, steps_done))
-            torch.save(target_network.state_dict(), "models/{}_target_{}.pth".format(env.ticker, steps_done))
+            torch.save(Q_network.state_dict(), "models/{}.pth".format(env.ticker))
+            torch.save(target_network.state_dict(), "models/{}_target.pth".format(env.ticker))
 
         # Update the current state
         state = next_state
