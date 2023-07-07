@@ -59,9 +59,4 @@ class DQN(nn.Module):
         else:
             return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
 
-    def load_weights(self, ticker, target=False):
-        if target:
-            self.load_state_dict(torch.load(f"Models/{ticker}_target.pth"))
-        else:
-            self.load_state_dict(torch.load(f"Models/{ticker}.pth"))
 

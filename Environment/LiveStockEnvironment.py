@@ -176,10 +176,10 @@ class LiveStockEnvironment:
         else:
             outOfBounds, order = self._execute_trade(action)
 
-        reward, next_state = self._compute_reward_and_next_state(order, outOfBounds)
+        portfolioValue, next_state = self._compute_portfolio_value_and_next_state(order, outOfBounds)
 
-        self.render(reward)
-        return next_state, reward, False
+        self.render()
+        return next_state, portfolioValue, False
 
     def _cancel_all_orders(self):
         """
@@ -222,7 +222,7 @@ class LiveStockEnvironment:
 
         return False, order
 
-    def _compute_reward_and_next_state(self, order, outOfBounds):
+    def _compute_portfolio_value_and_next_state(self, order, outOfBounds):
         """
         Compute the reward and the next state.
         Args:
@@ -231,32 +231,22 @@ class LiveStockEnvironment:
             tuple: The reward and the next state.
         """
         if outOfBounds:
-            reward = self.get_reward()  # calculate reward
+            portfolioValue = self.portfolio_value
             next_state = self.get_state()  # calculate next state
         else:
             while True:
                 if order.filled_at is not None or \
                         (datetime.datetime.now(pytz.UTC) - order.submitted_at).total_seconds() > 10:
-                    reward = self.get_reward()  # calculate reward
+                    portfolioValue = self.portfolio_value
                     next_state = self.get_state()  # calculate next state
                     break
-        return reward, next_state
+        return portfolioValue, next_state
 
-    def get_reward(self):
-        """
-        Calculates the reward from the action taken in the current step.
-
-        Returns:
-            float: The reward for the current step.
-        """
-        # Calculate the soonest stock price - the current stock price
-        return (((self.portfolio_value - self.portfolio_values[-20]) / self.portfolio_values[-20]))*1000
-
-    def render(self, reward):
+    def render(self):
         """
         Renders the environment.
         """
-        print(f"Portfolio value: {self.portfolio_value}, Cash: {self.portfolio_values[0]}, Asset price: {self.asset_price}, Reward: {reward}")
+        print(f"Portfolio value: {self.portfolio_value}, Cash: {self.portfolio_values[-20]}, Asset price: {self.asset_price}")
 
     def start(self):
         """

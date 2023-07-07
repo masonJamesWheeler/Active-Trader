@@ -252,8 +252,9 @@ def main_loop(env, BATCH_SIZE=524, architecture='RNN', window_size=128, hidden_s
 
     # If the weights exist, then load them
     if os.path.exists("Models/{}.pth".format(ticker)):
-        Q_network.load_weights(ticker=ticker, target=False)
-        target_network.load_weights(ticker=ticker, target=True)
+            Q_network.load_state_dict(torch.load(f"Models/{ticker}.pth"))
+            target_network.load_state_dict(torch.load(f"Models/{ticker}_target.pth"))
+
     steps_done = 0
 
     clock = api.get_clock()
