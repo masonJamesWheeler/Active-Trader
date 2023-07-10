@@ -25,6 +25,18 @@ class DQN(nn.Module):
 
         self.output_layer = nn.Linear(dense_size // (2 ** (dense_layers-1)), num_actions)
 
+    def load_weights(self, target, ticker):
+        if target:
+            self.load_state_dict(torch.load(f'./Weights/DQN{ticker}_target.pth'))
+        else:
+            self.load_state_dict(torch.load(f'./Weights/DQN{ticker}.pth'))
+
+    def save_weights(self, target, ticker):
+        if target:
+            torch.save(self.state_dict(), f'./Weights/DQN{ticker}_target.pth')
+        else:
+            torch.save(self.state_dict(), f'./Weights/DQN{ticker}.pth')
+
     def forward(self, x, hidden_state1, hidden_state2):
         if isinstance(self.rnn1, nn.LSTM):
             h1, c1 = hidden_state1
@@ -60,3 +72,70 @@ class DQN(nn.Module):
             return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
 
 
+def update_Q_values(batch, Q_network, target_network, optimizer, architecture, gamma=0.99):
+    """
+    Update the Q values and perform a backward pass.
+
+    Args:
+        batch: A batch of experiences containing states, actions, rewards, next states and hidden states.
+        Q_network: The current Q network model.
+        target_network: The target Q network model.
+        optimizer: The optimizer used to update the weights of the Q network.
+        architecture (str): The architecture of the Q network (e.g., 'LSTM').
+        gamma (float, optional): The discount factor for future rewards. Defaults to 0.99.
+
+    Returns:
+        None
+    """
+    # Convert the batch data into tensors
+    state_batch = torch.cat(batch.state)
+    action_batch = torch.tensor(batch.action)
+    reward_batch = torch.tensor(batch.reward)
+    next_state_batch = torch.cat(batch.next_state)
+
+    def process_batch(hidden_state):
+        """
+        Process the hidden states from the batch.
+
+        Args:
+            hidden_state: A list of hidden states.
+
+        Returns:
+            A tensor containing the processed hidden states.
+        """
+        # Check if hidden state is a tuple (for LSTM)
+        if isinstance(hidden_state[0], tuple):
+            return (torch.stack([x[0] for x in hidden_state]).squeeze().unsqueeze(0),
+                    torch.stack([x[1] for x in hidden_state]).squeeze().unsqueeze(0))
+        else:
+            return torch.stack(hidden_state).squeeze().unsqueeze(0)
+
+    # Process the hidden states
+    hidden_state1_batch = process_batch(batch.hidden_state1)
+    hidden_state2_batch = process_batch(batch.hidden_state2)
+    next_hidden_state1_batch = process_batch(batch.next_hidden_state1)
+    next_hidden_state2_batch = process_batch(batch.next_hidden_state2)
+
+    # Compute current Q values
+    current_Q_values, _, _ = Q_network(state_batch, hidden_state1_batch, hidden_state2_batch)
+
+    # Gather the Q values for the actions taken
+    current_Q_values = current_Q_values.gather(1, action_batch.view(-1, 1)).squeeze()
+
+    # Compute Q values for next states
+    next_Q_values, _, _ = target_network(next_state_batch, next_hidden_state1_batch, next_hidden_state2_batch)
+    # For LSTM architecture, remove unnecessary dimension
+
+    next_Q_values = next_Q_values.max(1)[0].detach()
+
+    # Compute the target Q values
+    target_Q_values = reward_batch + (gamma * next_Q_values)
+    # Compute the loss between current and target Q values
+    loss = F.smooth_l1_loss(current_Q_values, target_Q_values)
+
+    # Zero the gradients
+    optimizer.zero_grad()
+    # Perform a backward pass to compute gradients
+    loss.backward()
+    # Update the weights of the Q network
+    optimizer.step()

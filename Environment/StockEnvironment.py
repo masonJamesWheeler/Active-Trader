@@ -1,21 +1,23 @@
-import math
-import random
-from collections import deque
-from time import sleep
 import csv
-import numpy as np
-import pandas as pd
-import torch
+import math
 import os
+from collections import deque
+
+from joblib import dump, load
+import random
+
+import numpy as np
+import torch
+
 
 class StockEnvironment:
-    def __init__(self, starting_cash, starting_shares, data, scaled_data, window_size, feature_size, price_column,
-                 reward_function):
+    def __init__(self, starting_cash, starting_shares, window_size, feature_size, price_column, data=None,
+                 scaled_data=None):
         # Define the action space as a list of integers from 0 to 10
         self.action_space = list(range(11))
 
-        # Define the observation space as a tensor of zeros with shape (window_size, feature_size+2)
-        self.observation_space = torch.zeros((window_size, feature_size + 2), dtype=torch.float32).to(
+        # Define the observation space as a tensor of zeros with shape (window_size, feature_size)
+        self.observation_space = torch.zeros((window_size, feature_size), dtype=torch.float32).to(
             'cpu')  # Modify for your device, i.e., use 'cuda' for GPU
 
         # Set initial values for various variables
@@ -24,6 +26,10 @@ class StockEnvironment:
         self.starting_shares = starting_shares
         self.data = data
         self.scaled_data = scaled_data
+
+        self.data_deque = deque(maxlen=window_size)
+        self.scaled_data_deque = deque(maxlen=window_size)
+
         self.window_size = window_size
         self.feature_size = feature_size
         self.price_column = price_column
@@ -32,11 +38,14 @@ class StockEnvironment:
         self.current_cash = starting_cash
         self.current_shares = starting_shares
         self.current_portfolio_value = starting_cash
-        self.buy_and_hold_shares = (self.starting_cash/ self.data[0, -1, self.price_column]) + self.starting_shares
-        self.batch_size = 524
-        self.current_time_step_value = data[self.current_step]
-        self.reward_function = reward_function
 
+        if len (self.data) > 0:
+            self.buy_and_hold_shares = (self.starting_cash / self.data[window_size,-3]) + self.starting_shares
+            self.current_time_step_value = data[self.current_step]
+        else:
+            self.buy_and_hold_shares = 0
+            self.current_time_step_value = 0
+        self.batch_size = 524
 
         filename = './portfolio_values.csv'
         if os.path.isfile(filename):
@@ -51,17 +60,18 @@ class StockEnvironment:
         writer.writerow(
             ['Step', 'Current Stock Price', 'Action', 'Buy and Hold Portfolio Value', 'DQN Agent Portfolio Value'])
         self.writer = writer
+
     def sample_action(self):
         """
         Returns a random action from the action space.
         """
         return random.choice(self.action_space)
-    
+
     def get_current_price(self):
         """
         Returns the current price of the stock.
         """
-        return self.data[self.current_step, -1, self.price_column]
+        return self.data[self.current_step, self.price_column]
 
     def get_current_portfolio_value(self):
         """
@@ -72,124 +82,64 @@ class StockEnvironment:
     def step(self, action):
         initial_portfolio_value = self.get_current_portfolio_value()
 
-    #     Check if the episode is over
         if self.episode_ended:
             return self.reset()
-        self.writer.writerow([self.current_step, float(self.current_price) , action, float(self.get_buy_and_hold_portfolio_value()), float(self.get_current_portfolio_value())])
-    # Make the Trade by the action
+
+        self.writer.writerow(
+            [self.current_step, float(self.current_price), action, float(self.get_buy_and_hold_portfolio_value()),
+             float(self.get_current_portfolio_value())])
+
+        # Make the Trade by the action
         if action == 0:
             pass
-        elif action == 1: # Use 5% of cash value to buy a share
-            if self.current_cash > self.current_price:
-    #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.05)/self.current_price)
-    #             update cash and shares
-                self.current_cash -= shares_to_buy * self.current_price
-                self.current_shares += shares_to_buy
-            else:
-                pass
-        elif action == 2: # Use 10% of cash value to buy a share
-            if self.current_cash > self.current_price:
-    #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.10)/self.current_price)
-    #             update cash and shares
-                self.current_cash -= shares_to_buy * self.current_price
-                self.current_shares += shares_to_buy
-            else:
-                pass
-        elif action == 3: # Use 15% of cash value to buy a share
-            if self.current_cash > self.current_price:
-    #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.15)/self.current_price)
-    #             update cash and shares
-                self.current_cash -= shares_to_buy * self.current_price
-                self.current_shares += shares_to_buy
-            else:
-                pass
-        elif action == 4: # Use 20% of cash value to buy a share
-            if self.current_cash > self.current_price:
-    #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.20)/self.current_price)
-    #             update cash and shares
-                self.current_cash -= shares_to_buy * self.current_price
-                self.current_shares += shares_to_buy
-            else:
-                pass
-        elif action == 5: # Use 25% of cash value to buy a share
-            if self.current_cash > self.current_price:
-    #             find how many shares we can buy
-                shares_to_buy = int((self.current_cash*0.25)/self.current_price)
-    #             update cash and shares
-                self.current_cash -= shares_to_buy * self.current_price
-                self.current_shares += shares_to_buy
-            else:
-                pass
-        elif action == 6: # Sell 5% of shares
-            if self.current_shares > 0:
-    #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.05))
-    #             update cash and shares
-                self.current_cash += shares_to_sell * self.current_price
-                self.current_shares -= shares_to_sell
-            else:
-                pass
-        elif action == 7: # Sell 10% of shares
-            if self.current_shares > 0:
-    #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.10))
-    #             update cash and shares
-                self.current_cash += shares_to_sell * self.current_price
-                self.current_shares -= shares_to_sell
-            else:
-                pass
-        elif action == 8: # Sell 15% of shares
-            if self.current_shares > 0:
-    #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.15))
-    #             update cash and shares
-                self.current_cash += shares_to_sell * self.current_price
-                self.current_shares -= shares_to_sell
-            else:
-                pass
-        elif action == 9: # Sell 20% of shares
-            if self.current_shares > 0:
-    #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.20))
-    #             update cash and shares
-                self.current_cash += shares_to_sell * self.current_price
-                self.current_shares -= shares_to_sell
-            else:
-                pass
-        elif action == 10: # Sell 25% of shares
-            if self.current_shares > 0:
-    #             find how many shares we can sell
-                shares_to_sell = int((self.current_shares*0.25))
-    #             update cash and shares
-                self.current_cash += shares_to_sell * self.current_price
-                self.current_shares -= shares_to_sell
-            else:
-                pass
         else:
-            raise ValueError("Action not recognized")
+            percentage_to_trade = ((action - 1) % 10 + 1) * 0.05
 
-        # add the current price to the price history
-        self.price_history.append(self.current_price)
+            if action < 6:  # Buy shares
+                shares_to_buy = int((self.current_cash * percentage_to_trade) / self.current_price)
+                if self.current_cash > self.current_price and shares_to_buy > 0:
+                    # update cash and shares
+                    self.current_cash -= shares_to_buy * self.current_price
+                    self.current_shares += shares_to_buy
+                else:
+                    pass
+
+            elif action < 11:  # Sell shares
+                shares_to_sell = int(self.current_shares * percentage_to_trade)
+                if self.current_shares > 0 and shares_to_sell > 0:
+                    # update cash and shares
+                    self.current_cash += shares_to_sell * self.current_price
+                    self.current_shares -= shares_to_sell
+                else:
+                    pass
+
+            else:
+                raise ValueError("Action not recognized")
+
         self.current_step += 1
 
+        self.data_deque.append(np.concatenate((self.data[self.current_step], [self.current_cash/
+            self.current_portfolio_value, self.current_shares*self.current_price/self.current_portfolio_value])))
+        self.scaled_data_deque.append(np.concatenate((self.scaled_data[self.current_step], [self
+            .current_cash/self.current_portfolio_value, self.current_shares*self.current_price/self.current_portfolio_value])))
+
         done = False
-        if self.current_step >= len(self.data) -1:
+
+        if self.current_step >= len(self.data) - 1:
             done = True
         else:
             self.update_state()
 
-        reward = (((self.get_current_portfolio_value() - initial_portfolio_value) / initial_portfolio_value)) * 1000 # Scale reward to be between -100 and 100
-        self.render(reward=reward, share_price = self.current_price)
-        new_state = torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
-        # done to tensor
+        reward = (self.get_current_portfolio_value() - initial_portfolio_value)
+
+        self.render(reward=reward, share_price=self.current_price)
+
+        new_state = torch.tensor(np.array(self.scaled_data_deque), dtype=torch.float32).unsqueeze(0).to('cpu')
+
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
 
         return new_state, reward, done
-    
+
     def get_current_state(self):
         """
         Returns the current state of the environment.
@@ -197,19 +147,9 @@ class StockEnvironment:
         Returns:
             torch.tensor: The current state of the environment.
         """
-        state = np.array(self.scaled_data[self.current_step], dtype=np.float32)
-        # add the cash/portfolio value ratio and the share_value/portfolio value ratio at the end
-        cash_portfolio_ratio = self.current_cash / self.get_current_portfolio_value()
-        share_value_ratio = self.current_price * self.current_shares / self.get_current_portfolio_value()
-
-        state_with_ratios = np.zeros(shape=(1, self.window_size, state.shape[1]+2), dtype=np.float32)
-        state_with_ratios[0, :, :-2] = state
-        state_with_ratios[0, :, -2] = cash_portfolio_ratio
-        state_with_ratios[0, :, -1] = share_value_ratio
-
-        state = torch.tensor(state_with_ratios, dtype=torch.float32).to('cpu')
+        state = np.array(self.scaled_data_deque)
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to('cpu')
         return state
-
 
     def reset(self):
         """
@@ -218,21 +158,18 @@ class StockEnvironment:
         Returns:
             torch.tensor: The current state of the environment.
         """
-        self._episode_ended = False
-        self.current_step = 0
+        self.current_step = self.window_size
         self.current_cash = self.starting_cash
         self.current_shares = self.starting_shares
-        self.current_portfolio_value_history = []
-        self.current_portfolio_value_history.append(self.starting_cash)
         self.current_price = self.get_current_price()
+        self.buy_and_hold_shares = self.starting_shares + (self.starting_cash / self.get_current_price())
 
-        # Fill all the histories with zeroes
-        self.price_history = [0 for i in range(self.window_size)]
-        self.portfolio_value_history = [0 for i in range(self.window_size)]
-        self.cash_history = [0 for i in range(self.window_size)]
-        self.action_history = [0 for i in range(self.window_size)]
-        self.shares_history = [0 for i in range(self.window_size)]
+        return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
+    def soft_reset(self, new_data, new_scaled_data):
+        self.current_step = 0
+        self.data = new_data
+        self.scaled_data = new_scaled_data
         return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
     def render(self, reward, share_price):
@@ -242,8 +179,9 @@ class StockEnvironment:
         If the current step is within the length of the dataset, prints the current step, portfolio value, and buy and hold portfolio value.
         If the current step is outside the length of the dataset, prints "End of dataset".
         """
-        if self.current_step <= len(self.data) -1:
-            print(f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}')
+        if self.current_step <= len(self.data) - 1:
+            print(
+                f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}')
         else:
             print('End of dataset')
 
@@ -254,7 +192,6 @@ class StockEnvironment:
         """
         self.current_price = self.get_current_price()
         self.current_portfolio_value = self.get_current_portfolio_value()
-        self.current_portfolio_value_history.append(self.current_portfolio_value)
 
     # Returns the portfolio value if the agent buys and holds the stock from the beginning
     def get_buy_and_hold_portfolio_value(self):
@@ -266,7 +203,15 @@ class StockEnvironment:
         """
         # Calculate the portfolio value as the sum of starting cash and the value of starting shares
         # multiplied by the closing price of the stock at the current step
-        return self.buy_and_hold_shares * self.data[self.current_step, -1, 3]
+        return self.buy_and_hold_shares * self.data[self.current_step, 3]
+
+    def initialize_state(self):
+        """
+        Push the first window_sizes to the data_deques
+        """
+        for i in range(self.window_size):
+            self.data_deque.append(np.concatenate((self.data[i], [self.current_cash, self.current_shares])))
+            self.scaled_data_deque.append(np.concatenate((self.scaled_data[i], [self.current_cash/self.current_portfolio_value, self.current_shares/self.current_portfolio_value])))
 
 # ReplayMemory class for storing and sampling transitions
 class ReplayMemory:
@@ -305,6 +250,25 @@ class ReplayMemory:
         """
         return random.sample(self.memory, batch_size)
 
+    def save_memory(self, symbol):
+        """
+        Saves the current memory to a file.
+        """
+        # Create the directory if it doesn't exist
+        if not os.path.exists("ReplayMemoryCache"):
+            os.makedirs("ReplayMemoryCache")
+
+        # Save the replay memory to a file
+        dump(self.memory, f"ReplayMemoryCache/{symbol}_replay_memory.joblib")
+
+    def load_memory(self, symbol):
+        """
+        Loads the memory from a file.
+        """
+        # Load the replay memory from a file
+        if os.path.exists(f"ReplayMemoryCache/{symbol}_replay_memory.joblib"):
+            self.memory = load(f"ReplayMemoryCache/{symbol}_replay_memory.joblib")
+
     def __len__(self):
         """
         Returns the current size of the memory.
@@ -341,3 +305,10 @@ class EpsilonGreedyStrategy:
             The exploration rate for the current step.
         """
         return self.end + (self.start - self.end) * math.exp(-1. * current_step * self.decay)
+
+def epsilon_decay(steps_done, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=500):
+    """
+    Calculate decay of epsilon using the formula epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1. * steps_done / epsilon_decay)
+    """
+    return epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1. * steps_done / epsilon_decay)
+

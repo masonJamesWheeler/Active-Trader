@@ -29,7 +29,7 @@ def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_s
     ts = TimeSeries(key=api_key, output_format='pandas')
     ti = TechIndicators(key=api_key, output_format='pandas')
     # Initialize an array of length 30 with NaN values
-    fast_data = np.full((25,), np.nan)
+    fast_data = np.full((30,), np.nan)
 
     result, _ = ts.get_quote_endpoint(symbol=symbol)
     # extract the 2-6th values from the array
@@ -38,55 +38,55 @@ def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_s
 
     # Assume we have a mapping from indicator names to their index in the array
     indicator_to_index = {
-        'smawindow': 0,
-        'emawindow': 1,
-        'sma200': 2,
-        'ema200': 3,
-        'sma800': 4,
-        'ema800': 5,
-        'vwap': 6,
-        'rsi': 7,
-        'macd': 8,
-        'macd_signal': 9,
-        'macd_hist': 10,
-        'bbands_upper': 11,
-        'bbands_middle': 12,
-        'bbands_lower': 13,
-        'adx': 14,
-        'cci': 15,
-        'aroon_up': 16,
-        'aroon_down': 17,
-        'obv': 18,
-        'stoch_slowk': 19,
-        'stoch_slowd': 20,
-        'stochf_fastk': 21,
-        'stochf_fastd': 22,
-        'stochrsi_fastk': 23,
-        'stochrsi_fastd': 24,
+        'smawindow': 5,
+        'emawindow': 6,
+        'sma100': 7,
+        'ema100': 8,
+        'sma200': 9,
+        'ema200': 10,
+        'vwap': 11,
+        'rsi': 12,
+        'macd': 13,
+        'macd_signal': 14,
+        'macd_hist': 15,
+        'bbands_upper': 16,
+        'bbands_middle': 17,
+        'bbands_lower': 18,
+        'wma': 19,
+        'cci': 20,
+        'aroon_up': 21,
+        'aroon_down': 22,
+        'obv': 23,
+        'stoch_slowk': 24,
+        'stoch_slowd': 25,
+        'stochf_fastk': 26,
+        'stochf_fastd': 27,
+        'stochrsi_fastk': 28,
+        'stochrsi_fastd': 29,
     }
 
     # dict that contains indicator names and the corresponding function calls
     indicator_to_function1 = {
         'smawindow': lambda: ti.get_sma(symbol=symbol, interval=interval, time_period=window_size)[0]['SMA'][-1],
         'emawindow': lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=window_size)[0]['EMA'][-1],
+        'sma100': lambda: ti.get_sma(symbol=symbol, interval=interval, time_period=100)[0]['SMA'][-1],
+        'ema100': lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=100)[0]['EMA'][-1],
         'sma200': lambda: ti.get_sma(symbol=symbol, interval=interval, time_period=200)[0]['SMA'][-1],
-        'ema200': lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=200)[0]['EMA'][-1],
-        'sma800': lambda: ti.get_sma(symbol=symbol, interval=interval, time_period=800)[0]['SMA'][-1],
-        'ema800' :lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=800)[0]['EMA'][-1],
+        'ema200' :lambda: ti.get_ema(symbol=symbol, interval=interval, time_period=200)[0]['EMA'][-1],
         'vwap' :lambda: ti.get_vwap(symbol=symbol, interval=interval)[0]["VWAP"][-1],
-        'rsi' :lambda: ti.get_rsi(symbol=symbol, interval=interval)[0]["RSI"][-1],
-        'adx' :lambda: ti.get_adx(symbol=symbol, interval=interval, time_period = 60)[0]['ADX'][-1],
-        'cci' :lambda: ti.get_cci(symbol=symbol, interval=interval, time_period = 60)[0]['CCI'][-1],
+        'rsi' :lambda: ti.get_rsi(symbol=symbol, time_period=60, interval=interval)[0]["RSI"][-1],
+        'wma' :lambda: ti.get_wma(symbol=symbol, interval=interval, time_period = window_size)[0]['WMA'][-1],
+        'cci' :lambda: ti.get_cci(symbol=symbol, interval=interval, time_period = window_size)[0]['CCI'][-1],
         'obv' :lambda: ti.get_obv(symbol=symbol, interval=interval)[0]['OBV'][-1],
     }
 
     # dict that contains indicator names and the corresponding function calls
     indicator_to_function2 = {
         'vwap': lambda: ti.get_vwap(symbol=symbol, interval=interval)[0]["VWAP"][-1],
-        'rsi': lambda: ti.get_rsi(symbol=symbol, interval=interval)[0]["RSI"][-1],
+        'rsi': lambda: ti.get_rsi(symbol=symbol, time_period = 60, interval=interval)[0]["RSI"][-1],
         'macd': lambda: ti.get_macd(symbol=symbol, interval=interval)[0],
         'bbands': lambda: ti.get_bbands(symbol=symbol, interval=interval, time_period=60)[0],
-        'aroon': lambda: ti.get_aroon(symbol=symbol, interval=interval, time_period=60)[0],
+        'aroon': lambda: ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size)[0],
         'stoch': lambda: ti.get_stoch(symbol=symbol, interval=interval)[0],
         'stochf': lambda: ti.get_stochf(symbol=symbol, interval=interval)[0],
         'stochrsi': lambda: ti.get_stochrsi(symbol=symbol, interval=interval)[0],

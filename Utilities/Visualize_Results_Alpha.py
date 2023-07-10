@@ -7,7 +7,7 @@ import pandas as pd
 import sys
 
 # Read in the data
-data = pd.read_csv('MSFT.csv')
+data = pd.read_csv('v3.csv')
 
 # Calculate the excess return, which we are calling "Alpha" for simplicity
 data['Alpha'] = ((data['DQN Agent Portfolio Value'] - data['Buy and Hold Portfolio Value']) / data['Buy and Hold Portfolio Value']) * 100
@@ -66,7 +66,7 @@ stock_data[stock_id] = {
 # Loop through the dictionary and plot data for each stock
 for stock_id, stock_values in stock_data.items():
     if stock_id == 0:
-        stock_id = 'MSFT'
+        stock_id = 'AAPL'
     # Research style plots
     plt.style.use('seaborn-whitegrid')
     plt.rcParams.update({'font.size': 12, 'font.family': 'Serif', 'font.weight': 'semibold', 'axes.labelweight': 'semibold', 'axes.titleweight': 'semibold'})
@@ -92,7 +92,7 @@ for stock_id, stock_values in stock_data.items():
     axs[1].set_xlabel('Time Steps (Minutes)')
 
     # Save each plot
-    plt.savefig('./Media/Agent_Results_{}.png'.format(stock_id))
+    plt.savefig('./Results/Media/Agent_Results_{}.png'.format(stock_id))
 
 final_hold_return = (data.loc[len(data) - 1, "Buy and Hold Portfolio Value"] - data.loc[0, "Buy and Hold Portfolio Value"]) / data.loc[0, "Buy and Hold Portfolio Value"]
 final_agent_return = (data.loc[len(data) - 1, "DQN Agent Portfolio Value"] - data.loc[0, "DQN Agent Portfolio Value"]) / data.loc[0, "DQN Agent Portfolio Value"]
