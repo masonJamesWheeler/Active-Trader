@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,9 +29,11 @@ class DQN(nn.Module):
 
     def load_weights(self, target, ticker):
         if target:
-            self.load_state_dict(torch.load(f'./Weights/DQN{ticker}_target.pth'))
+            if os.path.exists(f'./Weights/DQN{ticker}_target.pth'):
+                self.load_state_dict(torch.load(f'./Weights/DQN{ticker}_target.pth'))
         else:
-            self.load_state_dict(torch.load(f'./Weights/DQN{ticker}.pth'))
+            if os.path.exists(f'./Weights/DQN{ticker}.pth'):
+                self.load_state_dict(torch.load(f'./Weights/DQN{ticker}.pth'))
 
     def save_weights(self, target, ticker):
         if target:

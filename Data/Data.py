@@ -1,21 +1,13 @@
-import io
-import pickle
+import os
+from datetime import datetime
 
 import joblib
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import requests
 import torch
 from dateutil.relativedelta import relativedelta
-from datetime import datetime
-from alpha_vantage.techindicators import TechIndicators
-from alpha_vantage.timeseries import TimeSeries
-from keras.utils import to_categorical
-from sklearn.preprocessing import MinMaxScaler
-from time import sleep
 from dotenv import load_dotenv
-import os
+from sklearn.preprocessing import MinMaxScaler
+
+from Utilities.Indicators import *
 
 # Load environment variables from .env file
 load_dotenv()
@@ -72,6 +64,7 @@ def get_stock_data(symbol, interval, month = '2023-07'):
     # remove the numbers from the column names, i.e 1. open -> open
     stock_df = pd.DataFrame(stock_df)
     stock_df.columns = [col.split(' ')[1] for col in stock_df.columns]
+    stock_df = stock_df.iloc[::-1]
 
     return stock_df
 
@@ -82,66 +75,65 @@ def get_all_months(start_year, start_month, end_year, end_month):
     return all_months
 
 def get_all_data(symbol, interval, window_size, month="2003-01"):
-    df_stock = get_stock_data(symbol, interval, month=month)
+    # Assuming that get_stock_data is a function that gets the OHLCV data
+    data = get_stock_data(symbol, interval, month=month)
 
-    # Calculate SMA, EMA and RSI
-    sma_window, ema_window = ti.get_sma(symbol=symbol, interval=interval, time_period=window_size, month=month)[0], \
-    ti.get_ema(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-    sma_100, ema_100 = ti.get_sma(symbol=symbol, interval=interval, time_period=100, month=month)[0], \
-    ti.get_ema(symbol=symbol, interval=interval, time_period=100, month=month)[0]
-    sma_200, ema_200 = ti.get_sma(symbol=symbol, interval=interval, time_period=200, month=month)[0], \
-    ti.get_ema(symbol=symbol, interval=interval, time_period=200, month=month)[0]
-    vwap = ti.get_vwap(symbol=symbol, interval=interval, month=month)[0]
-    rsi = ti.get_rsi(symbol=symbol, interval=interval, time_period=60, month=month)[0]
-    macd = ti.get_macd(symbol=symbol, interval=interval, month=month)[0]
-    bbands = ti.get_bbands(symbol=symbol, interval=interval, time_period=60, month=month)[0]
-    wma = ti.get_wma(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-    cci = ti.get_cci(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-    aroon = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-    obv = ti.get_obv(symbol=symbol, interval=interval, month=month)[0]
-    stoch = ti.get_stoch(symbol=symbol, interval=interval, month=month)[0]
-    stochf = ti.get_stochf(symbol=symbol, interval=interval, month=month)[0]
-    stochrsi = ti.get_stochrsi(symbol=symbol, interval=interval, month=month)[0]
-    df_stock['smawindow'], df_stock['emawindow'] = sma_window, ema_window
-    df_stock['sma100'], df_stock['ema100'] = sma_100, ema_100
-    df_stock['sma200'], df_stock['ema200'] = sma_200, ema_200
-    df_stock['vwap'] = vwap
-    df_stock['rsi'] = rsi
-    df_stock['macd'], df_stock['macd_signal'], df_stock['macd_hist'] = macd["MACD"], macd["MACD_Signal"], macd[
-        "MACD_Hist"]
-    df_stock['bbands_upper'], df_stock['bbands_middle'], df_stock['bbands_lower'] = bbands['Real Upper Band'], bbands[
-        'Real Middle Band'], bbands['Real Lower Band']
-    df_stock['wma'] = wma
-    df_stock['cci'] = cci
-    df_stock['aroon_up'], df_stock['aroon_down'] = aroon['Aroon Up'], aroon['Aroon Down']
-    df_stock['obv'] = obv
-    df_stock['stoch_slowk'], df_stock['stoch_slowd'] = stoch['SlowK'], stoch['SlowD']
-    df_stock['stochf_fastk'], df_stock['stochf_fastd'] = stochf['FastK'], stochf['FastD']
-    df_stock['stochrsi_fastk'], df_stock['stochrsi_fastd'] = stochrsi['FastK'], stochrsi['FastD']
+    # Replace the API calls with the function calls
+    data['smawindow'] = SMA(data, window_size)
+    data['emawindow'] = EMA(data, window_size)
+    data['sma100'] = SMA(data, 100)
+    data['ema100'] = EMA(data, 100)
+    data['sma200'] = SMA(data, 200)
+    data['ema200'] = EMA(data, 200)
+    data['vwap'] = VWAP(data)
+    data['rsi'] = RSI(data, 60)
+    macd_line, signal_line, histogram = MACD(data)
+    data['macd'] = macd_line
+    data['macd_signal'] = signal_line
+    data['macd_hist'] = histogram
+    upper_band, middle_band, lower_band = Bollinger_Bands(data, 60)
+    data['bbands_upper'] = upper_band
+    data['bbands_middle'] = middle_band
+    data['bbands_lower'] = lower_band
+    data['wma'] = WMA(data, window_size)
+    data['cci'] = CCI(data, window_size)
+    aroon_up, aroon_down = Aroon(data, window_size)
+    data['aroon_up'] = aroon_up
+    data['aroon_down'] = aroon_down
+    data['obv'] = OBV(data)
+    fastk, fastd = Stochastic(data)
+    data['stoch_slowk'] = fastk
+    data['stoch_slowd'] = fastd
+    fastk, fastd = Fast_Stochastic(data)
+    data['stochf_fastk'] = fastk
+    data['stochf_fastd'] = fastd
+    fastk, fastd = Stochastic_RSI(data, 60)
+    data['stochrsi_fastk'] = fastk
+    data['stochrsi_fastd'] = fastd
 
     # Convert the index to datetime if it's not already
-    df_stock.index = pd.to_datetime(df_stock.index)
+    data.index = pd.to_datetime(data.index)
 
     # Define the start and end of regular trading hours (in hours)
     start_of_trading = 9.5  # 9:30 AM
     end_of_trading = 16  # 4:00 PM
 
     # Extract the hour from the index
-    hour = df_stock.index.hour + df_stock.index.minute / 60.0
+    hour = data.index.hour + data.index.minute / 60.0
 
     # Filter the DataFrame to include only rows that fall within regular trading hours
-    df_stock = df_stock[(hour >= start_of_trading) & (hour < end_of_trading)]
+    data = data[(hour >= start_of_trading) & (hour < end_of_trading)]
 
     # change the index to be numerical
-    df_stock.reset_index(drop=True, inplace=True)
+    data.reset_index(drop=True, inplace=True)
 
     # Drop the initial rows that have NaN values due to the rolling window calculations
-    df_stock.dropna(inplace=True)
+    data.dropna(inplace=True)
 
     # Get the Indices of the open, high, low, close, volume, and indicators columns
-    columns_indices = {name: i for i, name in enumerate(df_stock.columns)}
+    columns_indices = {name: i for i, name in enumerate(data.columns)}
 
-    return df_stock, columns_indices
+    return data, columns_indices
 
 
 def get_and_process_data(ticker, interval, window_size, month):
@@ -179,14 +171,4 @@ def get_last_data(symbol, interval, month='2023-07', window_size=128):
     return last_data, scaled_data, scaler
 
 if __name__ == "__main__":
-    AlphaVantage_Paid_Key = "A5QND05S0W7CU55E"
-    ticker = "AAPL"
-    interval = '1min'
-    threshhold = 0.01
-    window_size = 128
-    years = 2
-    months = 12
-    month='1003-06'
-
-    data = get_last_data(ticker, interval, month, window_size)
-    print(data)
+    alpha_vantage_api_key = alpha_vantage_api_key

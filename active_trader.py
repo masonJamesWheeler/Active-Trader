@@ -23,7 +23,7 @@ def initialize():
     """
     architecture = "RNN"
     starting_cash = 10000
-    starting_shares = 1000
+    starting_shares = 10000
     window_size = 128
     price_column = 3
     dense_size = 256
@@ -72,6 +72,9 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
 
     # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
     env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize()
+    Q_network.load_weights(False, ticker)
+    target_network.load_weights(True, ticker)
+    memoryReplay.load_memory(ticker)
     steps_done = 0
     iterator = 0
 
@@ -115,18 +118,19 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
 
             state = next_state
 
-        Q_network.save_weights(False, ticker)
-        target_network.save_weights(True, ticker)
-        memoryReplay.save_memory(ticker)
+            if steps_done % 1000 == 0:
+                Q_network.save_weights(False, ticker)
+                target_network.save_weights(True, ticker)
+                memoryReplay.save_memory(ticker)
+
 
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    start_year = 2018
-    start_month = 1
+    start_year = 2008
+    start_month = 6
     end_year = 2023
     end_month = 7
 
     all_months = get_all_months(start_year, start_month, end_year, end_month)
-
     main_loop(ticker="AAPL", all_months=all_months)

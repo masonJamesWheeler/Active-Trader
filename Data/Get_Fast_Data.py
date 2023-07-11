@@ -1,4 +1,7 @@
 import numpy as np
+
+from Data.Data import get_stock_data
+from Utilities.Indicators import *
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
 import concurrent.futures
@@ -25,9 +28,9 @@ def get_indicator_data(symbol, interval, window_size, ti_function, **kwargs):
         return ti_function(symbol=symbol, interval=interval, **kwargs)[0]
 
 
-def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_size=60):
-    ts = TimeSeries(key=api_key, output_format='pandas')
-    ti = TechIndicators(key=api_key, output_format='pandas')
+def get_most_recent_data(symbol, interval, window_size=128):
+    ts = TimeSeries(key=alpha_vantage_api_key, output_format='pandas')
+    ti = TechIndicators(key=alpha_vantage_api_key, output_format='pandas')
     # Initialize an array of length 30 with NaN values
     fast_data = np.full((30,), np.nan)
 
@@ -153,5 +156,63 @@ def get_most_recent_data(symbol, interval, api_key= "A5QND05S0W7CU55E", window_s
 
     return np.array(fast_data)
 
+
+def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07"):
+    # Assuming that get_stock_data is a function that gets the OHLCV data
+    data = get_stock_data(symbol, interval, month=month)
+    print(data)
+
+    # Initialize a zero array of length 30
+    fast_data = np.zeros(30)
+
+    # Fill in the values
+    fast_data[0] = data['open'][-1]
+    fast_data[1] = data['high'][-1]
+    fast_data[2] = data['low'][-1]
+    fast_data[3] = data['close'][-1]
+    fast_data[4] = data['volume'][-1]
+    fast_data[5] = SMA(data, window_size).iloc[-1]
+    fast_data[6] = EMA(data, window_size).iloc[-1]
+    fast_data[7] = SMA(data, 100).iloc[-1]
+    fast_data[8] = EMA(data, 100).iloc[-1]
+    fast_data[9] = SMA(data, 200).iloc[-1]
+    fast_data[10] = EMA(data, 200).iloc[-1]
+    fast_data[11] = VWAP(data).iloc[-1]
+    fast_data[12] = RSI(data, 60).iloc[-1]
+    fast_data[13] = WMA(data, window_size).iloc[-1]
+    fast_data[14] = CCI(data, 128).iloc[-1]
+    fast_data[15] = OBV(data).iloc[-1]
+
+    # For MACD, Bollinger Bands, Aroon, and Stochastics, we need to handle multiple return values
+    macd_line, signal_line, histogram = MACD(data)
+    fast_data[16] = macd_line.iloc[-1]
+    fast_data[17] = signal_line.iloc[-1]
+    fast_data[18] = histogram.iloc[-1]
+
+    upper_band, middle_band, lower_band = Bollinger_Bands(data, window_size)
+    fast_data[19] = upper_band.iloc[-1]
+    fast_data[20] = middle_band.iloc[-1]
+    fast_data[21] = lower_band.iloc[-1]
+
+    aroon_up, aroon_down = Aroon(data, window_size)
+    fast_data[22] = aroon_up.iloc[-1]
+    fast_data[23] = aroon_down.iloc[-1]
+
+    fastk, fastd = Stochastic(data)
+    fast_data[24] = fastk.iloc[-1]
+    fast_data[25] = fastd.iloc[-1]
+
+    fastk, fastd = Fast_Stochastic(data)
+    fast_data[26] = fastk.iloc[-1]
+    fast_data[27] = fastd.iloc[-1]
+
+    fastk, fastd = Stochastic_RSI(data, 20)
+    fast_data[28] = fastk.iloc[-1]
+    fast_data[29] = fastd.iloc[-1]
+
+    return fast_data
+
+
 if __name__ == "__main__":
     print(get_most_recent_data("AAPL", "1min"))
+    print(get_most_recent_data2("AAPL", "1min"))

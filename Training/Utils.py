@@ -14,7 +14,7 @@ def initialize(architecture, hidden_size, dense_size, dense_layers):
     """
     Initialize environment, DQN networks, optimizer and memory replay.
     """
-    feature_size = 46
+    feature_size = 32
     num_actions = 11
     dropout_rate = 0.2
 

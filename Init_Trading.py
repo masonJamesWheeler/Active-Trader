@@ -251,7 +251,7 @@ trading_client = TradingClient(paper_alpaca_key, paper_alpaca_secret_key)
 if __name__ == "__main__":
     ticker = "AAPL"
     live_env = LiveStockEnvironment(ticker=ticker, window_size=128, feature_size=32)
-    live_env.load_state_deque()
+    live_env.initialize_training_environment()
     live_env.train()
 
 

@@ -47,8 +47,8 @@ class LiveStockEnvironment:
         self.batch_size = 512
         self.ticker = ticker
 
-        self.ts = TimeSeries(key="A5QND05S0W7CU55E", output_format='pandas')
-        self.ti = TechIndicators(key='A5QND05S0W7CU55E', output_format='pandas')
+        self.ts = TimeSeries(key=alpha_vantage_api_key, output_format='pandas')
+        self.ti = TechIndicators(key=alpha_vantage_api_key, output_format='pandas')
         self.data = deque(maxlen=window_size)
         self.last_data = None
         self.scaler = joblib.load(f"Scalers/{ticker}_{'1min'}_scaler.pkl")
@@ -74,7 +74,7 @@ class LiveStockEnvironment:
 
         self.delay_length = 2
         self.C = 10
-        self.Save_every = 1000
+        self.Save_every = 60
         self.steps_done = 0
 
         self.memoryReplay, self.num_actions, self.Q_network, self.target_network, self.optimizer,\
@@ -104,12 +104,14 @@ class LiveStockEnvironment:
                   or if an exception occurred).
         """
         try:
-            for _ in range(10):
+            for _ in range(5):
+                current_time = datetime.datetime.now(tz=pytz.timezone('US/Eastern'))
                 # Get the latest quote from the Alpha Vantage API
-                latest_quote = self.ts.get_intraday(symbol='AAPL', interval='1min', outputsize='full')[0].iloc[0]
+                latest_quote = self.ts.get_intraday(symbol='AAPL', interval='1min', outputsize='compact')[0].iloc[0]
 
                 # Check if the latest quote is different from the previously stored data
-                if self.last_data is None or not np.array_equal(latest_quote, self.last_data[0]):
+                if self.last_data is None or not np.array_equal(latest_quote, self.last_data):
+                    print(f'took {datetime.datetime.now(tz=pytz.timezone("US/Eastern")) - current_time} to get data')
                     # If the quote is different, update the stored data
                     self.last_data = latest_quote.copy()
 
@@ -135,6 +137,7 @@ class LiveStockEnvironment:
                     self.share_value = float(account.long_market_value)
                     self.cash = float(account.cash)
                     self.asset_price = float(latest_quote['4. close'])
+                    self.positionSize = float(self.api.get_position("AAPL").qty if self.api.get_position("AAPL") is not None else 0)
 
                     # Append the new data to the data deque
                     self.data.append(np.concatenate((new_data, np.array([
@@ -144,7 +147,6 @@ class LiveStockEnvironment:
 
                 # If the latest quote from the API was not different from the previously stored data, sleep before trying again
                 time.sleep(0.3)
-
             return False
         except Exception as e:
             print(f"An error occurred: {str(e)}")
@@ -162,14 +164,15 @@ class LiveStockEnvironment:
         Returns:
             tuple: The new state, the reward from the action, and a boolean indicating if trading is done.
         """
-        # start a timer to see how long this takes
+        # Start a timer to see how long this takes
         start = time.time()
         if self.alpha_vantage_update():
+            # If data update is successful, continue with the trade step
             self._cancel_all_orders()
-
+            print("We claim we got new data")
             if action not in range(11):
                 raise ValueError("Action not recognized")
-
+            print(f"Action: {action}")
             if action == 0:
                 outOfBounds = True
                 order = None
@@ -181,6 +184,9 @@ class LiveStockEnvironment:
             self.render()
             print(f"Step took: {time.time() - start} seconds")
             return next_state, portfolioValue, False
+        else:
+            # If data update failed, return None values
+            return None, None, False
 
     def _cancel_all_orders(self):
         """
@@ -199,6 +205,9 @@ class LiveStockEnvironment:
         order = None
         for i in range(1, 11):
             percentage_to_trade = ((i - 1) % 5 + 1) * 0.05
+            print(f"percentage to trade: {percentage_to_trade}")
+            print(f"action: {action}")
+            print(self.positionSize)
 
             if action == i:
                 if i < 6:
@@ -207,11 +216,16 @@ class LiveStockEnvironment:
                     if self.cash <= self.asset_price or quantity <= 0:
                         return True, None
                 else:
-                    side = 'sell'
-                    quantity = int(self.positionSize * percentage_to_trade)
-                    if self.positionSize <= 0 or quantity <= 0:
+                    if self.positionSize > 0:
+                        side = 'sell'
+                        quantity = int(self.positionSize * percentage_to_trade)
+                        if self.positionSize <= 0 or quantity <= 0:
+                            return True, None
+                    else:
+                        side = "short"
+                        quantity = int((self.cash * 0.5 * percentage_to_trade) / self.asset_price)
+                    if quantity <= 0:
                         return True, None
-
                 try:
                     order = self.api.submit_order(symbol=self.ticker, qty=quantity, side=side,
                                                   type='market', time_in_force='day')
@@ -225,19 +239,19 @@ class LiveStockEnvironment:
 
     def _compute_portfolio_value_and_next_state(self, order, outOfBounds):
         """
-        Compute the reward and the next state.
+        Compute the portfolio_value and the next state.
         Args:
             outOfBounds (bool): Whether trading was possible.
         Returns:
-            tuple: The reward and the next state.
+            tuple: The portfolio_value and the next state.
         """
         if outOfBounds:
             portfolioValue = self.portfolio_value
             next_state = self.get_state()  # calculate next state
         else:
             while True:
-                if order.filled_at is not None or \
-                        (datetime.datetime.now(pytz.UTC) - order.submitted_at).total_seconds() > 10:
+                if order is not None and order.status == 'filled' or \
+                        (datetime.datetime.now(pytz.UTC) - order.submitted_at).total_seconds() > 3:
                     portfolioValue = self.portfolio_value
                     next_state = self.get_state()  # calculate next state
                     break
@@ -258,8 +272,9 @@ class LiveStockEnvironment:
         each loop to synchronize the loop with the real-time stock data.
         """
         state = self.get_state()
-
+        self.steps_done = 10000
         while True:
+            self.steps_done += 1
             # Select an action based on the current state
             action, self.hidden_state1, self.hidden_state2 = execute_action(state, self.hidden_state1,
                                                                             self.hidden_state2, self.steps_done,
@@ -268,47 +283,50 @@ class LiveStockEnvironment:
             # Perform the selected action
             next_state, x_value, done = self.perform_trade_step(action)
 
-            # Store the state, action and hidden states in the dequeue
-            self.delayed_states.append(state)
-            self.delayed_actions.append(action)
-            self.delayed_hidden1.append(self.hidden_state1)
-            self.delayed_hidden2.append(self.hidden_state2)
-            self.delayed_x_values.append(x_value)
+            # If data update succeeded, perform the rest of the actions
+            if next_state is not None and x_value is not None:
+                # Store the state, action and hidden states in the dequeue
+                self.delayed_states.append(state)
+                self.delayed_actions.append(action)
+                self.delayed_hidden1.append(self.hidden_state1)
+                self.delayed_hidden2.append(self.hidden_state2)
+                self.delayed_x_values.append(x_value)
 
-            if len(self.delayed_states) == self.delay_length:
-                # We now have enough steps to calculate a delayed reward
-                delayed_state = self.delayed_states[0]
-                delayed_action = self.delayed_actions[0]
-                delayed_h1 = self.delayed_hidden1[0]
-                delayed_h2 = self.delayed_hidden2[0]
-                delayed_x_value = self.delayed_x_values[0]
+                if len(self.delayed_states) == self.delay_length:
+                    # We now have enough steps to calculate a delayed reward
+                    delayed_state = self.delayed_states[0]
+                    delayed_action = self.delayed_actions[0]
+                    delayed_h1 = self.delayed_hidden1[0]
+                    delayed_h2 = self.delayed_hidden2[0]
+                    delayed_x_value = self.delayed_x_values[0]
 
-                # Calculate the reward
-                reward = (x_value - delayed_x_value)
-                print(reward)
+                    # Calculate the reward
+                    reward = (x_value - delayed_x_value)
+                    print(reward)
 
-                # Add the transition to the memory replay
-                self.memoryReplay.push(
-                    (delayed_state, delayed_h1, delayed_h2, delayed_action, state, reward, self.hidden_state1,
-                     self.hidden_state2))
+                    # Add the transition to the memory replay
+                    self.memoryReplay.push(
+                        (delayed_state, delayed_h1, delayed_h2, delayed_action, state, reward, self.hidden_state1,
+                         self.hidden_state2))
 
-            # If the memory replay is full, sample a batch and update the Q-values
-            if len(self.memoryReplay) >= self.BATCH_SIZE:
-                transitions = self.memoryReplay.sample(self.BATCH_SIZE)
-                batch = Transition(*zip(*transitions))
-                update_Q_values(batch, self.Q_network, self.target_network, self.optimizer, self.architecture)
+                # If the memory replay is full, sample a batch and update the Q-values
+                if len(self.memoryReplay) >= self.BATCH_SIZE:
+                    transitions = self.memoryReplay.sample(self.BATCH_SIZE)
+                    batch = Transition(*zip(*transitions))
+                    update_Q_values(batch, self.Q_network, self.target_network, self.optimizer, self.architecture)
 
-            # If the number of steps is a multiple of C, update the target network
-            if self.steps_done % self.C == 0:
-                self.target_network.load_state_dict(self.Q_network.state_dict())
+                # If the number of steps is a multiple of C, update the target network
+                if self.steps_done % self.C == 0:
+                    self.target_network.load_state_dict(self.Q_network.state_dict())
 
-            # If the number of steps is a multiple of Save_every, save the Q-network and the Target-network
-            if self.steps_done % self.Save_every == 0:
-                torch.save(self.Q_network.state_dict(), "models/{}.pth".format(self.ticker))
-                torch.save(self.target_network.state_dict(), "models/{}_target.pth".format(self.ticker))
+                # If the number of steps is a multiple of Save_every, save the Q-network and the Target-network
+                if self.steps_done % self.Save_every == 0:
+                    self.Q_network.save_weights(False, self.ticker)
+                    self.target_network.save_weights(True, self.ticker)
+                    self.memoryReplay.save_memory(self.ticker)
 
-            # Update the current state
-            state = next_state
+                # Update the current state
+                state = next_state
 
             # Sleep until the start of the next minute to synchronize with real-time stock data
             current_time = time.time()
@@ -317,22 +335,27 @@ class LiveStockEnvironment:
 
             time.sleep(sleep_time)  # sleep until the start of the next minute
 
-    def load_state_deque(self):
-        """Loads the initial state deque with historical stock data.
+    def initialize_training_environment(self):
+        """Initializes the training environment.
 
         This method retrieves the last set of data points for the specified
         ticker from the Alpha Vantage API, scales the data, and stores it in
         the environment's state deque. It also retrieves account information
-        from the Alpaca API and updates the environment's portfolio and account
-        data.
+        from the Alpaca API, updates the environment's portfolio and account
+        data, loads the replay memory, and loads the DQN weights.
 
         The method is designed to be run at the start of the training process
-        to initialize the state deque with real historical data.
+        to set up the training environment.
         """
 
         # Load the ReplayMemory from the ReplayMemoryCache
-        self.memoryReplay.load_memory("AAPL")
+        self.memoryReplay.load_memory(self.ticker)
+        print(np.array(self.memoryReplay.memory).shape)
+
         # Load the Weights for the DQN
+        self.Q_network.load_weights(False, self.ticker)
+        self.target_network.load_weights(True, self.ticker)
+
         # Retrieve the last set of data points for the specified ticker from the Alpha Vantage API
         last_data, last_scaled_data, _ = get_last_data(self.ticker, '1min', "2023-07", self.window_size)
 

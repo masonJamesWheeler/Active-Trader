@@ -105,14 +105,18 @@ class StockEnvironment:
                     pass
 
             elif action < 11:  # Sell shares
-                shares_to_sell = int(self.current_shares * percentage_to_trade)
-                if self.current_shares > 0 and shares_to_sell > 0:
-                    # update cash and shares
-                    self.current_cash += shares_to_sell * self.current_price
-                    self.current_shares -= shares_to_sell
-                else:
-                    pass
-
+                if self.current_shares > 0:
+                    shares_to_sell = int(self.current_shares * percentage_to_trade)
+                    if self.current_shares > 0 and shares_to_sell > 0:
+                        # update cash and shares
+                        self.current_cash += shares_to_sell * self.current_price
+                        self.current_shares -= shares_to_sell
+                else: # Short shares
+                    shares_to_short = int((self.current_cash*0.5 * percentage_to_trade) / self.current_price)
+                    if self.current_cash > self.current_price*10 and shares_to_short > 0:
+                        # update cash and shares
+                        self.current_cash -= shares_to_short * self.current_price
+                        self.current_shares -= shares_to_short
             else:
                 raise ValueError("Action not recognized")
 
@@ -268,6 +272,7 @@ class ReplayMemory:
         # Load the replay memory from a file
         if os.path.exists(f"ReplayMemoryCache/{symbol}_replay_memory.joblib"):
             self.memory = load(f"ReplayMemoryCache/{symbol}_replay_memory.joblib")
+            self.position = len(self.memory) % self.capacity
 
     def __len__(self):
         """

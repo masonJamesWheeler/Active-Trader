@@ -123,6 +123,7 @@ class AlphaVantage(object):
                 self, *args, **kwargs)
             base_url = AlphaVantage._RAPIDAPI_URL if self.rapidapi else AlphaVantage._ALPHA_VANTAGE_API_URL
             url = "{}function={}".format(base_url, function_name)
+            url += "&entitlement=realtime"  # Append entitlement=realtime to every request
             for idx, arg_name in enumerate(argspec.args[1:]):
                 try:
                     arg_value = args[idx]
