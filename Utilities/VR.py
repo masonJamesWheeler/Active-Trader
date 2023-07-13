@@ -7,7 +7,7 @@ import pandas as pd
 import sys
 
 # Read in the data
-data = pd.read_csv('v3.csv')
+data = pd.read_csv('portfolio_values.csv')
 
 # Replace the 'Step' column with a new column that just contains the row number
 data['Step'] = range(len(data))
@@ -98,7 +98,7 @@ for stock_id, stock_values in stock_data.items():
     axs[1].set_xlabel('Time Steps (Minutes)')
 
     # Save each plot
-    plt.savefig('../Results/Media/Results_{}.png'.format(stock_id))
+    plt.savefig('./Results/Media/Results_{}.png'.format(stock_id))
 
 final_hold_return = (data.loc[len(data) - 1, "Buy and Hold Portfolio Value"] - data.loc[0, "Buy and Hold Portfolio Value"]) / data.loc[0, "Buy and Hold Portfolio Value"]
 final_agent_return = (data.loc[len(data) - 1, "DQN Agent Portfolio Value"] - data.loc[0, "DQN Agent Portfolio Value"]) / data.loc[0, "DQN Agent Portfolio Value"]

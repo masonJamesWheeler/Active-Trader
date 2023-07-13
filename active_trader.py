@@ -1,4 +1,3 @@
-import pickle
 import warnings
 from collections import namedtuple
 
@@ -26,8 +25,8 @@ def initialize():
     starting_shares = 10000
     window_size = 128
     price_column = 3
-    dense_size = 256
-    dense_layers = 2
+    dense_size = 128
+    dense_layers = 4
     feature_size = 32
     hidden_size = 128
     num_actions = 11
@@ -75,6 +74,10 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
     Q_network.load_weights(False, ticker)
     target_network.load_weights(True, ticker)
     memoryReplay.load_memory(ticker)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    Q_network = Q_network.to(device)
+    target_network = target_network.to(device)
+
     steps_done = 0
     iterator = 0
 
@@ -127,7 +130,7 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    start_year = 2008
+    start_year = 2014
     start_month = 6
     end_year = 2023
     end_month = 7

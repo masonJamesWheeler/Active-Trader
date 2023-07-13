@@ -34,35 +34,33 @@ interval = '1min'
 month = "2023-06"
 window_size = 128
 
-data, _ = ts.get_intraday(symbol=symbol, interval='1min', outputsize="full", month=month)
-# Reverse the data so that it is in chronological order
-data = data.iloc[::-1]
-data.columns = [col.split(' ')[1] for col in data.columns]
-
-sma_window, ema_window = ti.get_sma(symbol=symbol, interval=interval, time_period=window_size, month=month)[0], \
-    ti.get_ema(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-sma_100, ema_100 = ti.get_sma(symbol=symbol, interval=interval, time_period=100, month=month)[0], \
-    ti.get_ema(symbol=symbol, interval=interval, time_period=100, month=month)[0]
-sma_200, ema_200 = ti.get_sma(symbol=symbol, interval=interval, time_period=200, month=month)[0], \
-    ti.get_ema(symbol=symbol, interval=interval, time_period=200, month=month)[0]
-realVwap = ti.get_vwap(symbol=symbol, interval=interval, month=month)[0]
-realRsi = ti.get_rsi(symbol=symbol, interval=interval, time_period=60, month=month)[0]
-realMACD = ti.get_macd(symbol=symbol, interval=interval, month=month)[0]
-realBbands = ti.get_bbands(symbol=symbol, interval=interval, time_period=60, month=month)[0]
-realWma = ti.get_wma(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-realCci = ti.get_cci(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-realAroon = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
-realObv = ti.get_obv(symbol=symbol, interval=interval, month=month)[0]
-realStoch = ti.get_stoch(symbol=symbol, interval=interval, month=month)[0]
-realStochf = ti.get_stochf(symbol=symbol, interval=interval, month=month)[0]
-realStochrsi = ti.get_stochrsi(symbol=symbol, interval=interval, month=month)[0]
+# data, _ = ts.get_intraday(symbol=symbol, interval='1min', outputsize="full", month=month)
+# # Reverse the data so that it is in chronological order
+# data = data.iloc[::-1]
+# data.columns = [col.split(' ')[1] for col in data.columns]
+#
+# sma_window, ema_window = ti.get_sma(symbol=symbol, interval=interval, time_period=window_size, month=month)[0], \
+#     ti.get_ema(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
+# sma_100, ema_100 = ti.get_sma(symbol=symbol, interval=interval, time_period=100, month=month)[0], \
+#     ti.get_ema(symbol=symbol, interval=interval, time_period=100, month=month)[0]
+# sma_200, ema_200 = ti.get_sma(symbol=symbol, interval=interval, time_period=200, month=month)[0], \
+#     ti.get_ema(symbol=symbol, interval=interval, time_period=200, month=month)[0]
+# realVwap = ti.get_vwap(symbol=symbol, interval=interval, month=month)[0]
+# realRsi = ti.get_rsi(symbol=symbol, interval=interval, time_period=60, month=month)[0]
+# realMACD = ti.get_macd(symbol=symbol, interval=interval, month=month)[0]
+# realBbands = ti.get_bbands(symbol=symbol, interval=interval, time_period=60, month=month)[0]
+# realWma = ti.get_wma(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
+# realCci = ti.get_cci(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
+# realAroon = ti.get_aroon(symbol=symbol, interval=interval, time_period=window_size, month=month)[0]
+# realObv = ti.get_obv(symbol=symbol, interval=interval, month=month)[0]
+# realStoch = ti.get_stoch(symbol=symbol, interval=interval, month=month)[0]
+# realStochf = ti.get_stochf(symbol=symbol, interval=interval, month=month)[0]
+# realStochrsi = ti.get_stochrsi(symbol=symbol, interval=interval, month=month)[0]
 
 
 '''
 INDICATOR FUNCTIONS
 '''
-
-
 def SMA(data, window):
     sma = data['close'].rolling(window).mean()
     return sma

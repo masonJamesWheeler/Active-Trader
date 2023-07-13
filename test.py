@@ -9,6 +9,7 @@ from Data.Get_Fast_Data import get_most_recent_data, get_most_recent_data2
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
 from dotenv import load_dotenv
+import matplotlib.pyplot as plt
 
 
 # Load environment variables from .env file
@@ -27,4 +28,4 @@ ti = TechIndicators(key=alpha_vantage_api_key, output_format='pandas')
 api = tradeapi.REST(paper_alpaca_key, paper_alpaca_secret_key, base_url='https://paper-api.alpaca.markets',
                          api_version='v2')
 
-data = get_and_process_data("AAPL", "1min", 128, "2023-06")
+print(ts.get_symbol_search('AAPL'))

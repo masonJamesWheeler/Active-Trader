@@ -105,17 +105,18 @@ class StockEnvironment:
                     pass
 
             elif action < 11:  # Sell shares
-                if self.current_shares > 0:
+                if self.current_shares > 0 and self.current_shares*self.current_price > self.current_portfolio_value * 0.1:
                     shares_to_sell = int(self.current_shares * percentage_to_trade)
-                    if self.current_shares > 0 and shares_to_sell > 0:
+                    if shares_to_sell > 0:
                         # update cash and shares
                         self.current_cash += shares_to_sell * self.current_price
                         self.current_shares -= shares_to_sell
-                else: # Short shares
-                    shares_to_short = int((self.current_cash*0.5 * percentage_to_trade) / self.current_price)
-                    if self.current_cash > self.current_price*10 and shares_to_short > 0:
+                else:
+                    max_amount_of_short_shares = int(self.current_portfolio_value * 0.2 / self.current_price)
+                    shares_to_short = int((max_amount_of_short_shares + self.current_shares) * percentage_to_trade)
+                    if shares_to_short > 0:
                         # update cash and shares
-                        self.current_cash -= shares_to_short * self.current_price
+                        self.current_cash += shares_to_short * self.current_price
                         self.current_shares -= shares_to_short
             else:
                 raise ValueError("Action not recognized")
@@ -185,7 +186,7 @@ class StockEnvironment:
         """
         if self.current_step <= len(self.data) - 1:
             print(
-                f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}')
+                f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}, Shares: {self.current_shares:0.2f}')
         else:
             print('End of dataset')
 
