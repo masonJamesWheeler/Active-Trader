@@ -7,7 +7,7 @@ class TimeSeries(av):
     """
     @av._output_format
     @av._call_api_on_func
-    def get_intraday(self, symbol, interval='15min', outputsize='compact', month = ""):
+    def get_intraday(self, symbol, interval='15min', outputsize='compact', month=''):
         """ Return intraday time series in two json objects as data and
         meta_data. It raises ValueError when problems arise
 
@@ -20,6 +20,9 @@ class TimeSeries(av):
                 'compact' and 'full; the first returns the last 100 points in the
                 data series, and 'full' returns the full-length intraday times
                 series, commonly above 1MB (default 'compact')
+            month:  The specified month of targeted time series. By default, the latest
+                month available in the API is returned. Strings should be in the format
+                YYYY-MM (e.g. 2021-07) (default '')
         """
         _FUNCTION_KEY = "TIME_SERIES_INTRADAY"
         return _FUNCTION_KEY, "Time Series ({})".format(interval), 'Meta Data'
