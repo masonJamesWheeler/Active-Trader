@@ -1,6 +1,6 @@
 import collections
 import warnings
-from collections import namedtuple
+from collections import deque, namedtuple
 from random import random, randrange
 
 import numpy as np
@@ -84,14 +84,10 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
     target_network = target_network.to(device)
 
     # Initialize the meta-model
-    meta_model = MetaModel(2, 10, 1, window_size)
+    meta_model = MetaModel(1, 128, 1, window_size)
     meta_optimizer = torch.optim.Adam(meta_model.parameters())
 
-    # Initialize some variables to keep track of portfolio and buy and hold values
-    prev_portfolio_value = None
-    prev_buy_and_hold_value = None
-    portfolio_changes = []
-    buy_and_hold_changes = []
+    rewards = deque(maxlen=window_size)
 
     steps_done = 0
     iterator = 0
@@ -122,34 +118,15 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
                                                                            num_actions, Q_network)
             next_state, reward, done = env.step(action)
 
-            if prev_portfolio_value is not None and prev_buy_and_hold_value is not None:
-                portfolio_change = env.get_current_portfolio_value() - prev_portfolio_value
-                buy_and_hold_change = env.get_buy_and_hold_portfolio_value() - prev_buy_and_hold_value
-                portfolio_changes.append(portfolio_change)
-                buy_and_hold_changes.append(buy_and_hold_change)
+            if len(rewards) > window_size:
+                meta_input_seq = torch.tensor(np.array(rewards), dtype=torch.float32)
 
-                # If we have enough data, train the metamodel
-                if len(portfolio_changes) >= META_TRAINING_THRESHOLD:
-                    # Create a tensor to hold the sequence data
-                    meta_input_seq = torch.zeros(window_size, 2, dtype=torch.float32).to(device)
-                    for i in range(window_size):
-                        avg_portfolio_change = np.mean(portfolio_changes[-i:])
-                        avg_buy_and_hold_change = np.mean(buy_and_hold_changes[-i:])
-                        meta_input_seq[i] = torch.tensor([avg_portfolio_change, avg_buy_and_hold_change],
-                                                         dtype=torch.float32).to(device)
+                epsilon = meta_model(meta_input_seq)
+                meta_optimizer.zero_grad()
+                loss = -reward * epsilon
+                loss.backward()
+                meta_optimizer.step()
 
-                    epsilon = meta_model(meta_input_seq)
-
-                    # Calculate the reward for the metamodel
-                    reward = portfolio_change - buy_and_hold_change
-                    print("Meta Reward: " + str(reward.item()) + " Epsilon: " + str(epsilon.item()))
-                    loss = -reward * epsilon  # we want to maximize reward
-                    meta_optimizer.zero_grad()
-                    loss.backward()
-                    meta_optimizer.step()
-
-            prev_portfolio_value = env.get_current_portfolio_value()
-            prev_buy_and_hold_value = env.get_buy_and_hold_portfolio_value()
 
             # Add the transition to the memory replay
             memoryReplay.push(

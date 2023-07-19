@@ -223,12 +223,37 @@ class ReplayMemory:
         self.memory[self.position] = transition
         self.position = (self.position + 1) % self.capacity
 
+    @staticmethod
+    def softmax(x):
+        e_x = np.exp(x - np.max(x))  # subtract max to avoid overflow
+        return e_x / e_x.sum(axis=0)
+
     def sample(self, batch_size):
-        priorities = np.arange(len(self.memory)) + 1  # [1, 2, ..., len(memory)]
-        decayed_priorities = priorities ** -self.decay_factor
-        decayed_priorities /= np.sum(decayed_priorities)  # normalize to get probabilities
-        indices = np.random.choice(len(self.memory), size=batch_size, p=decayed_priorities)
-        return [self.memory[i] for i in indices]
+        transitions = [transition for transition in self.memory if transition is not None]
+        
+        # Extract rewards
+        rewards = np.array([transition.reward for transition in transitions])
+        
+        # Priorities based on time
+        time_priorities = np.arange(len(transitions)) + 1  # [1, 2, ..., len(memory)]
+        
+        # Priorities based on reward
+        reward_priorities = np.abs(rewards) ** self.reward_power
+        
+        # Combined priorities
+        combined_priorities = time_priorities * reward_priorities  
+        
+        # Compute softmax probabilities
+        probabilities = softmax(combined_priorities)
+
+        # Adjust batch size if there are less transitions than requested batch size
+        actual_batch_size = min(batch_size, len(transitions))
+
+        # Sample indices based on probabilities
+        indices = np.random.choice(len(transitions), size=actual_batch_size, p=probabilities)
+        
+        # Return corresponding transitions
+        return [transitions[i] for i in indices]
 
     def __len__(self):
         return len(self.memory)
