@@ -40,6 +40,7 @@ class StockEnvironment:
         self.current_portfolio_value = starting_cash
 
         if len (self.data) > 0:
+            self.current_price = self.data[self.current_step, self.price_column]
             self.buy_and_hold_shares = (self.starting_cash / self.data[window_size,-3]) + self.starting_shares
             self.current_time_step_value = data[self.current_step]
         else:
@@ -77,9 +78,12 @@ class StockEnvironment:
         """
         Returns the current portfolio value, which is the sum of the current cash and the current value of the shares.
         """
-        return self.current_cash + self.current_shares * self.current_price
+        return self.current_cash + self.current_shares * self.get_current_price()
 
     def step(self, action):
+        initial_shares = self.current_shares
+        initial_share_price = self.get_current_price()
+        initial_cash = self.current_cash
         initial_portfolio_value = self.get_current_portfolio_value()
 
         if self.episode_ended:
@@ -87,55 +91,39 @@ class StockEnvironment:
 
         self.writer.writerow(
             [self.current_step, float(self.current_price), action, float(self.get_buy_and_hold_portfolio_value()),
-             float(self.get_current_portfolio_value())])
+             float(initial_portfolio_value)])
 
-        # Make the Trade by the action
-        if action == 0:
-            pass
+        # Calculate the desired portfolio value based on the action
+        if action < 6:
+            desired_portfolio_value = initial_portfolio_value * action * 0.2
+        elif action < 11:
+            desired_portfolio_value = -initial_portfolio_value * (action - 5) * 0.05
         else:
-            percentage_to_trade = ((action - 1) % 10 + 1) * 0.05
+            raise ValueError("Action not recognized")
 
-            if action < 6:  # Buy shares
-                shares_to_buy = int((self.current_cash * percentage_to_trade) / self.current_price)
-                if self.current_cash > self.current_price and shares_to_buy > 0:
-                    # update cash and shares
-                    self.current_cash -= shares_to_buy * self.current_price
-                    self.current_shares += shares_to_buy
-                else:
-                    pass
+        # Calculate the desired number of shares
+        desired_shares = int(desired_portfolio_value / self.current_price)
 
-            elif action < 11:  # Sell shares
-                if self.current_shares > 0 and self.current_shares*self.current_price > self.current_portfolio_value * 0.1:
-                    shares_to_sell = int(self.current_shares * percentage_to_trade)
-                    if shares_to_sell > 0:
-                        # update cash and shares
-                        self.current_cash += shares_to_sell * self.current_price
-                        self.current_shares -= shares_to_sell
-                else:
-                    max_amount_of_short_shares = int(self.current_portfolio_value * 0.2 / self.current_price)
-                    shares_to_short = int((max_amount_of_short_shares + self.current_shares) * percentage_to_trade)
-                    if shares_to_short > 0:
-                        # update cash and shares
-                        self.current_cash += shares_to_short * self.current_price
-                        self.current_shares -= shares_to_short
-            else:
-                raise ValueError("Action not recognized")
+        # Update the number of shares and the amount of cash based on the desired number of shares
+        self.current_cash += (initial_shares - desired_shares) * self.current_price
+        self.current_shares = desired_shares
 
         self.current_step += 1
 
-        self.data_deque.append(np.concatenate((self.data[self.current_step], [self.current_cash/
-            self.current_portfolio_value, self.current_shares*self.current_price/self.current_portfolio_value])))
-        self.scaled_data_deque.append(np.concatenate((self.scaled_data[self.current_step], [self
-            .current_cash/self.current_portfolio_value, self.current_shares*self.current_price/self.current_portfolio_value])))
-
-        done = False
-
-        if self.current_step >= len(self.data) - 1:
+        if self.current_step >= len(self.data) - 2:
             done = True
         else:
             self.update_state()
+            done = False
 
-        reward = (self.get_current_portfolio_value() - initial_portfolio_value)
+        self.data_deque.append(np.concatenate((self.data[self.current_step - 1], [initial_cash /
+                                                                                  initial_portfolio_value,
+                                                                                  initial_shares * initial_share_price / initial_portfolio_value])))
+        self.scaled_data_deque.append(np.concatenate((self.scaled_data[self.current_step - 1], [initial_cash /
+                                                                                                initial_portfolio_value,
+                                                                                                initial_shares * initial_share_price / initial_portfolio_value])))
+
+        reward = torch.tensor(self.current_portfolio_value - initial_portfolio_value, dtype=torch.float32).to('cpu')
 
         self.render(reward=reward, share_price=self.current_price)
 
@@ -208,7 +196,10 @@ class StockEnvironment:
         """
         # Calculate the portfolio value as the sum of starting cash and the value of starting shares
         # multiplied by the closing price of the stock at the current step
-        return self.buy_and_hold_shares * self.data[self.current_step, 3]
+        if self.current_step < len(self.data) - 1:
+            return self.starting_cash + self.starting_shares * self.data[self.current_step, 3]
+        else:
+            return 0
 
     def initialize_state(self):
         """
@@ -220,40 +211,27 @@ class StockEnvironment:
 
 # ReplayMemory class for storing and sampling transitions
 class ReplayMemory:
-    def __init__(self, capacity):
-        """
-        Initializes the ReplayMemory object with a given capacity.
-
-        Args:
-            capacity (int): The maximum number of transitions that can be stored in the memory.
-        """
+    def __init__(self, capacity, decay_factor=0.7):
         self.capacity = capacity
-        self.memory = []  # list to store transitions
-        self.position = 0  # current position in the memory
+        self.decay_factor = decay_factor
+        self.memory = []
+        self.position = 0
 
     def push(self, transition):
-        """
-        Saves a transition to the memory.
-
-        Args:
-            transition (tuple): A tuple containing the state, action, next state, reward, and done flag.
-        """
         if len(self.memory) < self.capacity:
-            self.memory.append(None)  # add None to the list if memory is not full
-        self.memory[self.position] = transition  # add the transition to the memory
-        self.position = (self.position + 1) % self.capacity  # update the current position
+            self.memory.append(None)
+        self.memory[self.position] = transition
+        self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
-        """
-        Samples a batch of transitions from the memory.
+        priorities = np.arange(len(self.memory)) + 1  # [1, 2, ..., len(memory)]
+        decayed_priorities = priorities ** -self.decay_factor
+        decayed_priorities /= np.sum(decayed_priorities)  # normalize to get probabilities
+        indices = np.random.choice(len(self.memory), size=batch_size, p=decayed_priorities)
+        return [self.memory[i] for i in indices]
 
-        Args:
-            batch_size (int): The number of transitions to sample.
-
-        Returns:
-            A list of transitions of size batch_size.
-        """
-        return random.sample(self.memory, batch_size)
+    def __len__(self):
+        return len(self.memory)
 
     def save_memory(self, symbol):
         """
@@ -312,7 +290,7 @@ class EpsilonGreedyStrategy:
         """
         return self.end + (self.start - self.end) * math.exp(-1. * current_step * self.decay)
 
-def epsilon_decay(steps_done, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=500):
+def epsilon_decay(steps_done, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=100000):
     """
     Calculate decay of epsilon using the formula epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1. * steps_done / epsilon_decay)
     """

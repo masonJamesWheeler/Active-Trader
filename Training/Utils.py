@@ -1,6 +1,10 @@
 from collections import namedtuple
+from random import random, randrange
+
 import numpy as np
 import torch
+from torch import device
+
 from Environment.StockEnvironment import ReplayMemory, epsilon_decay
 from Models.DQN_Agent import DQN
 import torch.optim as optim
@@ -9,6 +13,7 @@ Transition = namedtuple('Transition',
                         ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward',
                          'next_hidden_state1', 'next_hidden_state2'))
 
+device = device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def initialize(architecture, hidden_size, dense_size, dense_layers):
     """
@@ -33,14 +38,14 @@ def initialize(architecture, hidden_size, dense_size, dense_layers):
     return memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2
 
 
-def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions, Q_network):
-    """
-    Execute action based on epsilon-greedy policy.
-    """
-    if np.random.rand() < epsilon_decay(steps_done):
-        action = np.random.randint(num_actions)
-    else:
+def execute_action(state, hidden_state1, hidden_state2, epsilon, num_actions, Q_network):
+    sample = random()
+
+    if sample > epsilon:
         with torch.no_grad():
-            Q_values, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
-            action = torch.argmax(Q_values).item()
-    return action, hidden_state1, hidden_state2
+            action, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
+            action = action.max(1)[1].view(1, 1)
+            return action, hidden_state1, hidden_state2, epsilon
+    else:
+        action = torch.tensor([[randrange(num_actions)]], device=device, dtype=torch.long)
+        return action, hidden_state1, hidden_state2, epsilon

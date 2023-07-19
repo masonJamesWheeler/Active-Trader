@@ -1,13 +1,16 @@
+import collections
 import warnings
 from collections import namedtuple
+from random import random, randrange
 
 import numpy as np
 import torch
 import torch.optim as optim
-
+from torch import device
+device = device("cuda:0" if torch.cuda.is_available() else "cpu")
 from Data.Data import get_and_process_data, get_all_months
 from Environment.StockEnvironment import StockEnvironment, ReplayMemory, epsilon_decay
-from Models.DQN_Agent import DQN, update_Q_values
+from Models.DQN_Agent import DQN, update_Q_values, MetaModel
 
 warnings.filterwarnings('ignore')
 
@@ -25,8 +28,8 @@ def initialize():
     starting_shares = 10000
     window_size = 128
     price_column = 3
-    dense_size = 128
-    dense_layers = 4
+    dense_size = 256
+    dense_layers = 3
     feature_size = 32
     hidden_size = 128
     num_actions = 11
@@ -48,21 +51,21 @@ def initialize():
 
     return env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2
 
+def execute_action(state, hidden_state1, hidden_state2, epsilon, num_actions, Q_network):
+    sample = random()
 
-def execute_action(state, hidden_state1, hidden_state2, steps_done, num_actions, Q_network):
-    """
-    Execute action based on epsilon-greedy policy.
-    """
-    if np.random.rand() < epsilon_decay(steps_done):
-        action = np.random.randint(num_actions)
-    else:
+    if sample > epsilon:
         with torch.no_grad():
-            Q_values, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
-            action = torch.argmax(Q_values).item()
-    return action, hidden_state1, hidden_state2
+            action, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
+            action = action.max(1)[1].view(1, 1)
+            return action, hidden_state1, hidden_state2, epsilon
+    else:
+        action = torch.tensor([[randrange(num_actions)]], device=device, dtype=torch.long)
+        return action, hidden_state1, hidden_state2, epsilon
 
 
-def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, architecture='RNN'):
+def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, architecture='RNN',
+              META_TRAINING_THRESHOLD=128):
     """
     Run the main loop of DQN training.
     """
@@ -71,12 +74,24 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
 
     # Initialize the environment, memory replay, Q-network, target network, optimizer, and hidden states
     env, memoryReplay, num_actions, Q_network, target_network, optimizer, hidden_state1, hidden_state2 = initialize()
-    Q_network.load_weights(False, ticker)
-    target_network.load_weights(True, ticker)
+    Q_network.load_weights(False, ticker, Q_network.dense_layers_num, Q_network.dense_size, Q_network.hidden_size,
+                           Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
+    target_network.load_weights(True, ticker, Q_network.dense_layers_num, Q_network.dense_size, Q_network.hidden_size,
+                                Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
+
     memoryReplay.load_memory(ticker)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     Q_network = Q_network.to(device)
     target_network = target_network.to(device)
+
+    # Initialize the meta-model
+    meta_model = MetaModel(2, 10, 1, window_size)
+    meta_optimizer = torch.optim.Adam(meta_model.parameters())
+
+    # Initialize some variables to keep track of portfolio and buy and hold values
+    prev_portfolio_value = None
+    prev_buy_and_hold_value = None
+    portfolio_changes = []
+    buy_and_hold_changes = []
 
     steps_done = 0
     iterator = 0
@@ -97,14 +112,45 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
             env.current_step = 0
 
         done = False
+        epsilon = epsilon_decay(steps_done)
+
         # Loop until the episode is done
         while not done:
             steps_done += 1
             # Execute an action and get the next state, reward, and done flag
-            action, hidden_state1, hidden_state2 = execute_action(state, hidden_state1, hidden_state2, steps_done,
-                                                                  num_actions, Q_network)
+            action, hidden_state1, hidden_state2, epsilon = execute_action(state, hidden_state1, hidden_state2, epsilon,
+                                                                           num_actions, Q_network)
             next_state, reward, done = env.step(action)
-            # Render the environment
+
+            if prev_portfolio_value is not None and prev_buy_and_hold_value is not None:
+                portfolio_change = env.get_current_portfolio_value() - prev_portfolio_value
+                buy_and_hold_change = env.get_buy_and_hold_portfolio_value() - prev_buy_and_hold_value
+                portfolio_changes.append(portfolio_change)
+                buy_and_hold_changes.append(buy_and_hold_change)
+
+                # If we have enough data, train the metamodel
+                if len(portfolio_changes) >= META_TRAINING_THRESHOLD:
+                    # Create a tensor to hold the sequence data
+                    meta_input_seq = torch.zeros(window_size, 2, dtype=torch.float32).to(device)
+                    for i in range(window_size):
+                        avg_portfolio_change = np.mean(portfolio_changes[-i:])
+                        avg_buy_and_hold_change = np.mean(buy_and_hold_changes[-i:])
+                        meta_input_seq[i] = torch.tensor([avg_portfolio_change, avg_buy_and_hold_change],
+                                                         dtype=torch.float32).to(device)
+
+                    epsilon = meta_model(meta_input_seq)
+
+                    # Calculate the reward for the metamodel
+                    reward = portfolio_change - buy_and_hold_change
+                    print("Meta Reward: " + str(reward.item()) + " Epsilon: " + str(epsilon.item()))
+                    loss = -reward * epsilon  # we want to maximize reward
+                    meta_optimizer.zero_grad()
+                    loss.backward()
+                    meta_optimizer.step()
+
+            prev_portfolio_value = env.get_current_portfolio_value()
+            prev_buy_and_hold_value = env.get_buy_and_hold_portfolio_value()
+
             # Add the transition to the memory replay
             memoryReplay.push(
                 (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
@@ -121,16 +167,18 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
 
             state = next_state
 
-            if steps_done % 1000 == 0:
-                Q_network.save_weights(False, ticker)
-                target_network.save_weights(True, ticker)
-                memoryReplay.save_memory(ticker)
+        Q_network.save_weights(False, ticker, Q_network.dense_layers_num, Q_network.dense_size, Q_network.hidden_size,
+                               Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
+        target_network.save_weights(True, ticker, Q_network.dense_layers_num, Q_network.dense_size,
+                                    Q_network.hidden_size,
+                                    Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
 
+        memoryReplay.save_memory(ticker)
 
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    start_year = 2014
+    start_year = 2018
     start_month = 6
     end_year = 2023
     end_month = 7

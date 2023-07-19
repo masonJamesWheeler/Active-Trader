@@ -7,13 +7,13 @@ import pandas as pd
 import sys
 
 # Read in the data
-data = pd.read_csv('portfolio_values.csv')
+data = pd.read_csv('portfolio_values_1.csv')
 
 # Replace the 'Step' column with a new column that just contains the row number
 data['Step'] = range(len(data))
 
 # Write the modified DataFrame back to the csv file
-data.to_csv('v3.csv', index=False)
+data.to_csv('v5.csv', index=False)
 
 # Calculate the excess return, which we are calling "Alpha" for simplicity
 data['Alpha'] = ((data['DQN Agent Portfolio Value'] - data['Buy and Hold Portfolio Value']) / data['Buy and Hold Portfolio Value']) * 100
