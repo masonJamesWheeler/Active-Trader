@@ -6,6 +6,8 @@ from collections import deque
 from joblib import dump, load
 import random
 
+from Data.DataLoader import DataLoader
+from test import TiDE
 import numpy as np
 import heapq
 import torch
@@ -27,8 +29,8 @@ class StockEnvironment:
         self.data = data
         self.scaled_data = scaled_data
 
-        self.data_deque = deque(maxlen=window_size)
-        self.scaled_data_deque = deque(maxlen=window_size)
+        self.data_deque = deque(maxlen=400)
+        self.scaled_data_deque = deque(maxlen=400)
 
         self.window_size = window_size
         self.feature_size = feature_size
@@ -46,7 +48,12 @@ class StockEnvironment:
         else:
             self.buy_and_hold_shares = 0
             self.current_time_step_value = 0
+
         self.batch_size = 524
+        self.TiDE = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
+        self.TiDE.load_weights()
+
+        torch.nn.utils.clip_grad_norm_(self.TiDE.parameters(), max_norm=1)
 
         filename = './portfolio_values.csv'
         if os.path.isfile(filename):
@@ -133,7 +140,9 @@ class StockEnvironment:
 
         self.render(reward=reward, share_price=self.current_price)
 
-        new_state = torch.tensor(np.array(self.scaled_data_deque), dtype=torch.float32).unsqueeze(0).to('cpu')
+        new_state = np.array(self.scaled_data_deque)
+        dataLoader = DataLoader(new_state)
+        new_state, _ = dataLoader.generate_training_data()
 
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
 
@@ -146,8 +155,10 @@ class StockEnvironment:
         Returns:
             torch.tensor: The current state of the environment.
         """
-        state = np.array(self.scaled_data_deque)
-        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to('cpu')
+        state = torch.tensor(np.array(self.scaled_data_deque), dtype=torch.float32).to('cpu')
+        print(state.shape)
+        state = self.TiDE(state, state)
+        print(state.shape)
         return state
 
     def reset(self):

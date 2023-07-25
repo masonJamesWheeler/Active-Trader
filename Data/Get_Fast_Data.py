@@ -1,5 +1,3 @@
-import numpy as np
-
 from Data.Data import get_stock_data
 from Utilities.Indicators import *
 from alpha_vantage.techindicators import TechIndicators

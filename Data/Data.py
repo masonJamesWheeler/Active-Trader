@@ -1,12 +1,9 @@
-import os
 from datetime import datetime
 
 import joblib
 import torch
 from dateutil.relativedelta import relativedelta
-from dotenv import load_dotenv
 from sklearn.preprocessing import MinMaxScaler
-
 from Utilities.Indicators import *
 
 # Load environment variables from .env file

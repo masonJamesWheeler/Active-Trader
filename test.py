@@ -6,6 +6,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from Data.Data import get_and_process_data, get_all_data, get_all_months
+from Data.DataLoader import DataLoader
 from Data.Get_Fast_Data import get_most_recent_data, get_most_recent_data2
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
@@ -106,7 +107,7 @@ class TiDE(nn.Module):
         torch.save(self.state_dict(), 'TiDE.pth')
 
     def load_weights(self):
-        self.load_state_dict(torch.load('runs/TiDE3.pth'))
+        self.load_state_dict(torch.load('weights/TiDE2.pth'))
 
 
 def create_sequences(data, seq_length, pred_length):
@@ -121,55 +122,89 @@ def create_sequences(data, seq_length, pred_length):
 
     return torch.stack(xs), torch.stack(ys)
 
-# Initialize the model
-model = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
 
-model.load_weights()
+def main():
+    # Initialize the model
+    model = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
 
-torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+    # model.load_weights()
+    model.eval()
 
-# Use mean squared error loss
-criterion = torch.nn.MSELoss()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
 
-# Use the Adam optimizer
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    # Use mean squared error loss
+    criterion = torch.nn.MSELoss()
 
-# Number of epochs
-epochs = 100
+    # Use the Adam optimizer
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-months = get_all_months(2000, 1, 2023, 6)  # train on data up to June 2023
+    # Number of epochs
+    epochs = 100
 
-# Assume scaled_data is a torch tensor of shape [num_days, 30]
-seq_length = 128
-pred_length = 128
+    months = get_all_months(2000, 1, 2022, 1)  # train on data up to June 2023
 
-# Prepare the test data
-test_month = '2023-07'
-test_data, test_scaled_data, test_scaler = get_and_process_data('AAPL', '1Min', 128, month=test_month)
+    # Prepare the test data
+    test_month = '2023-07'
+    test_data, test_scaled_data, test_scaler = get_and_process_data('AAPL', '1Min', 128, month=test_month)
 
-# Train the model
-for epoch in range(epochs):
-    for month in months:
-        data, scaled_data, scaler = get_and_process_data('AAPL', '1Min', 128, month=month)
-        x, y = create_sequences(scaled_data, seq_length, pred_length)
+    test_data_loader = DataLoader(test_scaled_data)
+    test_x, test_y = test_data_loader.generate_training_data()
+    test_y = test_y[:, :, 0:5]
 
-        model.train()
-        optimizer.zero_grad()
+    # Train the model
+    for epoch in range(epochs):
+        for month in months:
+            data, scaled_data, scaler = get_and_process_data('AAPL', '1Min', 128, month=month)
+            data_loader = DataLoader(scaled_data)
 
-        # Forward pass
-        outputs = model(x, x)  # use x as both the input and the covariates
-        loss = criterion(outputs, y)
+            x, y = data_loader.generate_training_data()
 
-        # Backward and optimize
-        loss.backward()
-        optimizer.step()
+            # only keep the first 5 columns
+            y = y[:, :, 0:5]
 
-        # Evaluate the model
-        model.eval()
-        test_outputs = model(test_x, test_x)
-        test_loss = criterion(test_outputs, test_y)
-        print('Epoch: {}, Loss: {}, Test Loss: {}'.format(epoch, loss.item(), test_loss.item()))
+            model.train()
+            optimizer.zero_grad()
 
-#     Save the model to the run folder
-    torch.save(model.state_dict(), 'runs/TiDE{}.pth'.format(epoch))
+            # Forward pass
+            outputs = model(x, x)  # use x as both the input and the covariates
+            loss = criterion(outputs, y)
 
+            # Backward and optimize
+            loss.backward()
+            optimizer.step()
+
+            # Evaluate the model
+            model.eval()
+            test_outputs = model(test_x, test_x)
+            test_loss = criterion(test_outputs, test_y)
+            print('Epoch: {}, Loss: {}, Test Loss: {}'.format(epoch, loss.item(), test_loss.item()))
+
+    #     Save the model to the run folder
+        torch.save(model.state_dict(), 'Weights/TiDE{}.pth'.format(epoch))
+
+def model_prediction_test():
+    model = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
+    model.load_weights()
+    model.eval()
+
+    test_month = '2023-07'
+    test_data, test_scaled_data, test_scaler = get_and_process_data('AAPL', '1Min', 128, month=test_month)
+    test_data_loader = DataLoader(test_scaled_data)
+    test_x = test_data_loader.get_input_data(len(test_scaled_data)-1)
+    print(test_x.shape)
+
+    prediction = model(test_x, test_x)
+    print(prediction.shape)
+#   convert torch to numpy
+    prediction = prediction.detach().numpy()
+    plt.figure(figsize=(20, 10))
+    plt.plot(prediction[:, 0], label='Open')
+    plt.plot(prediction[:, 1], label='High')
+    plt.plot(prediction[:, 2], label='Low')
+    plt.plot(prediction[:, 3], label='Close')
+    plt.legend()
+    plt.show()
+
+
+if __name__ == '__main__':
+    main()
