@@ -154,8 +154,8 @@ def get_and_process_data(ticker, interval, window_size, month):
         print("Created scaler")
 
     # Convert the numpy array to a PyTorch tensor
-    df = torch.from_numpy(stock_data)
-    scaled_df = torch.from_numpy(scaled_df)
+    df = torch.from_numpy(stock_data).float()
+    scaled_df = torch.from_numpy(scaled_df).float()
 
     return df, scaled_df, scaler
 

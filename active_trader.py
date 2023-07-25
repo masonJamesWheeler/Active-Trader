@@ -38,6 +38,7 @@ def initialize():
     env = StockEnvironment(starting_cash=starting_cash, starting_shares=starting_shares, window_size=window_size,
                            feature_size=feature_size, price_column=price_column, data=[], scaled_data=[])
     memoryReplay = ReplayMemory(100000)
+
     Q_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions,
                     architecture=architecture, dense_layers=dense_layers, dense_size=dense_size,
                     dropout_rate=dropout_rate)
@@ -64,8 +65,7 @@ def execute_action(state, hidden_state1, hidden_state2, epsilon, num_actions, Q_
         return action, hidden_state1, hidden_state2, epsilon
 
 
-def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, architecture='RNN',
-              META_TRAINING_THRESHOLD=128):
+def main_loop(ticker, all_months, window_size=128, C=5, BATCH_SIZE=512, architecture='RNN'):
     """
     Run the main loop of DQN training.
     """
@@ -84,7 +84,7 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
     target_network = target_network.to(device)
 
     # Initialize the meta-model
-    meta_model = MetaModel(1, 128, 1, window_size)
+    meta_model = MetaModel(1, 10, 1, window_size)
     meta_optimizer = torch.optim.Adam(meta_model.parameters())
 
     rewards = deque(maxlen=window_size)
@@ -108,7 +108,7 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
             env.current_step = 0
 
         done = False
-        epsilon = epsilon_decay(steps_done)
+        epsilon = 1.0
 
         # Loop until the episode is done
         while not done:
@@ -118,19 +118,22 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
                                                                            num_actions, Q_network)
             next_state, reward, done = env.step(action)
 
-            if len(rewards) > window_size:
-                meta_input_seq = torch.tensor(np.array(rewards), dtype=torch.float32)
+            rewards.append(reward)
 
+            if len(rewards) == window_size:
+                meta_input_seq = torch.tensor(np.array(rewards), dtype=torch.float32)
                 epsilon = meta_model(meta_input_seq)
+                print(epsilon.item())
                 meta_optimizer.zero_grad()
                 loss = -reward * epsilon
                 loss.backward()
                 meta_optimizer.step()
 
-
             # Add the transition to the memory replay
-            memoryReplay.push(
-                (state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1, hidden_state2))
+            transition = Transition(state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1,
+                                    hidden_state2)
+            
+            memoryReplay.push(transition)
 
             # If the memory replay is full, sample a batch and update the Q-values
             if len(memoryReplay) >= BATCH_SIZE:
@@ -152,10 +155,12 @@ def main_loop(ticker, all_months, window_size=128, C=10, BATCH_SIZE=512, archite
 
         memoryReplay.save_memory(ticker)
 
+        meta_model.save_weights(1, 128, 1, window_size)
+
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    start_year = 2018
+    start_year = 2020
     start_month = 6
     end_year = 2023
     end_month = 7

@@ -7,8 +7,8 @@ from joblib import dump, load
 import random
 
 import numpy as np
+import heapq
 import torch
-
 
 class StockEnvironment:
     def __init__(self, starting_cash, starting_shares, window_size, feature_size, price_column, data=None,
@@ -123,7 +123,13 @@ class StockEnvironment:
                                                                                                 initial_portfolio_value,
                                                                                                 initial_shares * initial_share_price / initial_portfolio_value])))
 
-        reward = torch.tensor(self.current_portfolio_value - initial_portfolio_value, dtype=torch.float32).to('cpu')
+        reward = self.get_current_portfolio_value() - initial_portfolio_value
+        
+        if reward > 0:
+            reward = reward**2
+        else:
+            reward = reward**2
+            reward = -reward
 
         self.render(reward=reward, share_price=self.current_price)
 
@@ -209,54 +215,22 @@ class StockEnvironment:
             self.data_deque.append(np.concatenate((self.data[i], [self.current_cash, self.current_shares])))
             self.scaled_data_deque.append(np.concatenate((self.scaled_data[i], [self.current_cash/self.current_portfolio_value, self.current_shares/self.current_portfolio_value])))
 
-# ReplayMemory class for storing and sampling transitions
+
 class ReplayMemory:
-    def __init__(self, capacity, decay_factor=0.7):
+    def __init__(self, capacity):
         self.capacity = capacity
-        self.decay_factor = decay_factor
         self.memory = []
         self.position = 0
 
     def push(self, transition):
+        """Saves a transition."""
         if len(self.memory) < self.capacity:
             self.memory.append(None)
         self.memory[self.position] = transition
         self.position = (self.position + 1) % self.capacity
 
-    @staticmethod
-    def softmax(x):
-        e_x = np.exp(x - np.max(x))  # subtract max to avoid overflow
-        return e_x / e_x.sum(axis=0)
-
     def sample(self, batch_size):
-        transitions = [transition for transition in self.memory if transition is not None]
-        
-        # Extract rewards
-        rewards = np.array([transition.reward for transition in transitions])
-        
-        # Priorities based on time
-        time_priorities = np.arange(len(transitions)) + 1  # [1, 2, ..., len(memory)]
-        
-        # Priorities based on reward
-        reward_priorities = np.abs(rewards) ** self.reward_power
-        
-        # Combined priorities
-        combined_priorities = time_priorities * reward_priorities  
-        
-        # Compute softmax probabilities
-        probabilities = softmax(combined_priorities)
-
-        # Adjust batch size if there are less transitions than requested batch size
-        actual_batch_size = min(batch_size, len(transitions))
-
-        # Sample indices based on probabilities
-        indices = np.random.choice(len(transitions), size=actual_batch_size, p=probabilities)
-        
-        # Return corresponding transitions
-        return [transitions[i] for i in indices]
-
-    def __len__(self):
-        return len(self.memory)
+        return random.sample(self.memory, batch_size)
 
     def save_memory(self, symbol):
         """

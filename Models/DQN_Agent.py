@@ -84,6 +84,15 @@ class DQN(nn.Module):
         else:
             return torch.zeros(1, batch_size, self.hidden_size), torch.zeros(1, batch_size, self.hidden_size)
 
+class SigmoidDQN(DQN):
+    def __init__(self, input_size, hidden_size, num_actions, architecture, dense_layers, dense_size, dropout_rate, name):
+        super(SigmoidDQN, self).__init__(input_size, hidden_size, num_actions, architecture, dense_layers, dense_size, dropout_rate)
+        self.name = name
+
+    def forward(self, x, hidden_state1, hidden_state2):
+        x, hidden_state1, hidden_state2 = super().forward(x, hidden_state1, hidden_state2)
+        x = torch.sigmoid(x)
+        return x, hidden_state1, hidden_state2
 
 class MetaModel(nn.Module):
     def __init__(self, input_size=2, hidden_layer_size=10, output_size=1, window_size=10):
@@ -94,7 +103,7 @@ class MetaModel(nn.Module):
 
     def forward(self, x):
         # Reshaping the input to fit the model
-        x = x.view(-1, self.window_size, 2)
+        x = x.view(-1, self.window_size, 1)
 
         lstm_out, _ = self.lstm(x)
         # Getting the last output of the sequence
@@ -177,3 +186,4 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     loss.backward()
     # Update the weights of the Q network
     optimizer.step()
+
