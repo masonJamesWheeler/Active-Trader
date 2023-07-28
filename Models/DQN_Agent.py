@@ -38,17 +38,17 @@ class DQN(nn.Module):
 
     def load_weights(self, target, ticker, dense_layers, dense_size, hidden_size, dropout_rate, feature_size, num_actions):
         if target:
-            if os.path.exists(f'./Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}_target.pth'):
-                self.load_state_dict(torch.load(f'./Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}_target.pth'))
+            if os.path.exists(f'./BackTest_Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}_target.pth'):
+                self.load_state_dict(torch.load(f'./BackTest_Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}_target.pth'))
         else:
-            if os.path.exists(f'./Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}.pth'):
-                self.load_state_dict(torch.load(f'./Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}.pth'))
+            if os.path.exists(f'./BackTest_Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}.pth'):
+                self.load_state_dict(torch.load(f'./BackTest_Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}.pth'))
 
     def save_weights(self, target, ticker, dense_layers, dense_size, hidden_size, dropout_rate, feature_size, num_actions):
         if target:
-            torch.save(self.state_dict(), f'./Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}_target.pth')
+            torch.save(self.state_dict(), f'./BackTest_Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}_target.pth')
         else:
-            torch.save(self.state_dict(), f'./Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}.pth')
+            torch.save(self.state_dict(), f'./BackTest_Weights/DQN{ticker}_{dense_layers}_{dense_size}_{hidden_size}_{dropout_rate}_{feature_size}_{num_actions}.pth')
 
     def forward(self, x, hidden_state1, hidden_state2):
         if isinstance(self.rnn1, nn.LSTM):
@@ -113,11 +113,11 @@ class MetaModel(nn.Module):
         return x
 
     def load_weights(self, input_size, hidden_layer_size, output_size, window_size):
-        if os.path.exists(f'./Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth'):
-            self.load_state_dict(torch.load(f'./Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth'))
+        if os.path.exists(f'./BackTest_Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth'):
+            self.load_state_dict(torch.load(f'./BackTest_Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth'))
 
     def save_weights(self, input_size, hidden_layer_size, output_size, window_size):
-        torch.save(self.state_dict(), f'./Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth')
+        torch.save(self.state_dict(), f'./BackTest_Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth')
 
 def update_Q_values(batch, Q_network, target_network, optimizer, architecture, gamma=0.99):
     """
@@ -127,7 +127,7 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
         batch: A batch of experiences containing states, actions, rewards, next states and hidden states.
         Q_network: The current Q network model.
         target_network: The target Q network model.
-        optimizer: The optimizer used to update the weights of the Q network.
+        optimizer: The optimizer used to update the BackTest_Weights of the Q network.
         architecture (str): The architecture of the Q network (e.g., 'LSTM').
         gamma (float, optional): The discount factor for future rewards. Defaults to 0.99.
 
@@ -184,6 +184,6 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     optimizer.zero_grad()
     # Perform a backward pass to compute gradients
     loss.backward()
-    # Update the weights of the Q network
+    # Update the BackTest_Weights of the Q network
     optimizer.step()
 
