@@ -51,7 +51,7 @@ class StockEnvironment:
 
         self.batch_size = 524
         self.TiDE = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
-        self.TiDE.load_weights()
+        self.TiDE.load_weights(ticker='AAPL', live=False)
 
         torch.nn.utils.clip_grad_norm_(self.TiDE.parameters(), max_norm=1)
 

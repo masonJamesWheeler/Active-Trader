@@ -39,7 +39,7 @@ class StockEnvironmentV2:
         self.current_shares = self.starting_shares
 
         self.TiDE = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
-        self.TiDE.load_weights()
+        self.TiDE.load_weights(ticker='AAPL', live=False)
 
         self.finished = False
 
@@ -121,8 +121,9 @@ class StockEnvironmentV2:
         '''
         self.data = data
         self.scaled_data = scaled_data
-        self.data_loader = DataLoader(self.data)
+        self.data_loader = DataLoader(self.scaled_data)
         self.current_step = self.lookback_period
+        self.finished = False
         return self.get_current_state()
 
 
@@ -133,17 +134,18 @@ class StockEnvironmentV2:
         prediction = self.TiDE(state, state)
         return prediction
 
-    def render(self, portfolio_value, buy_and_hold_portfolio_value, shares, share_price, reward, action):
+    def render(self, portfolio_value, buy_and_hold_portfolio_value, shares, share_price, reward, action, epsilon):
         '''
         Render the environment on the command line
         '''
-        print(f'Portfolio Value: {portfolio_value}, Buy and Hold Portfolio Value: {buy_and_hold_portfolio_value}, Shares:{shares}, Share Price: {share_price}, Reward: {reward}, Action: {action}')
+        print(f'Portfolio Value: {portfolio_value.item()}, Buy and Hold Portfolio Value: {buy_and_hold_portfolio_value}, Shares:{shares},'
+              f' Share Price: {share_price.item()}, Reward: {reward.item()}, Action: {action.item()}, Epsilon: {epsilon}')
 
-
-    def step(self, action):
+    def step(self, action, epsilon):
         # Clip the action to the action space
         action = max(min(action, max(self.action_space)), min(self.action_space))
 
+        # Observe the initial state
         initial_shares = self.current_shares
         initial_cash = self.current_cash
         initial_portfolio_value = self.get_current_portfolio_value()
@@ -151,34 +153,37 @@ class StockEnvironmentV2:
         if self.finished:
             return self.reset()
 
+        # Record the initial state
         self.writer.writerow(
             [self.current_step, float(self.current_price), action, float(self.get_buy_and_hold_portfolio_value()),
              float(initial_portfolio_value)])
 
-        # Update the current price before updating the portfolio
+        # Update the current price after the initial observation
         self.current_price = self.get_current_price()
 
         # Calculate the desired portfolio value based on the action
         if action < 6:
-            desired_portfolio_value = initial_portfolio_value * action * 0.2
+            desired_ratio = action * 0.2
         elif action < 11:
-            desired_portfolio_value = -initial_portfolio_value * (action - 5) * 0.05
+            desired_ratio = (action - 5) * (-0.05)
         else:
             raise ValueError("Action not recognized")
 
-        # Calculate the desired number of shares
-        desired_shares = int(desired_portfolio_value / self.current_price)
+        # Logic for adjusting the portfolio cash and shares.
+        # Maximum hold 100% of our value in shares and minimum -20% of our value in shares
+        desired_shares = int(desired_ratio * initial_portfolio_value / self.current_price)
 
-        # Check for sufficient cash when buying shares
-        if desired_shares > initial_shares:
-            buy_shares = min(desired_shares - initial_shares, initial_cash // self.current_price)
-            self.current_cash -= buy_shares * self.current_price
-            self.current_shares += buy_shares
-        # Check for enough shares when selling
-        elif desired_shares < initial_shares:
-            sell_shares = min(initial_shares - desired_shares, initial_shares)
-            self.current_cash += sell_shares * self.current_price
-            self.current_shares -= sell_shares
+        # Buy or sell shares based on the desired shares
+        if desired_shares >= self.current_shares:
+            # Buy shares
+            shares_to_buy = desired_shares - self.current_shares
+            self.current_cash -= shares_to_buy * self.current_price
+            self.current_shares += shares_to_buy
+        else:
+            # Sell shares
+            shares_to_sell = self.current_shares - desired_shares
+            self.current_cash += shares_to_sell * self.current_price
+            self.current_shares -= shares_to_sell
 
         self.current_step += 1
 
@@ -188,13 +193,15 @@ class StockEnvironmentV2:
         else:
             done = False
 
+        # The reward is calculated as the change in portfolio value after the trade
         reward = self.get_current_portfolio_value() - initial_portfolio_value
         next_state = self.get_current_state()
 
         self.render(self.get_current_portfolio_value(), self.get_buy_and_hold_portfolio_value(), self.current_shares,
-                    self.current_price, reward, action)
+                    self.current_price, reward, action, epsilon)
 
         return next_state, reward, done
+
 
 if __name__ == '__main__':
     pass

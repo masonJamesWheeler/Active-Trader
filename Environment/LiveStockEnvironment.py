@@ -338,7 +338,7 @@ class LiveStockEnvironment:
 
         # Load the ReplayMemory from the ReplayMemoryCache
         self.memoryReplay.load_memory("AAPL")
-        # Load the Weights for the DQN
+        # Load the BackTest_Weights for the DQN
         # Retrieve the last set of data points for the specified ticker from the Alpha Vantage API
         last_data, last_scaled_data, _ = get_last_data(self.ticker, '1min', "2023-07", self.window_size)
 
