@@ -80,6 +80,17 @@ def get_latest_row(table_name):
 
     return row
 
+def get_latest_n_rows(table_name, n):
+    cursor = conn.cursor()
+
+    # Select the most recent n rows based on timestamp
+    cursor.execute(f"SELECT * FROM {table_name} ORDER BY timestamp DESC LIMIT {n}")
+
+    rows = cursor.fetchall()
+    cursor.close()
+
+    return rows
+
 def get_latest_ohlcv(table_name):
     cursor = conn.cursor()
 
