@@ -2,19 +2,17 @@ import csv
 import math
 import os
 from collections import deque
-
+from PostGreSQL.Database import *
 from joblib import dump, load
 import random
 
-from Data.DataLoader import DataLoader
-from test import TiDE
 import numpy as np
 import heapq
 import torch
 
 class StockEnvironment:
     def __init__(self, starting_cash, starting_shares, window_size, feature_size, price_column, data=None,
-                 scaled_data=None):
+                 scaled_data=None, time_data=None):
         # Define the action space as a list of integers from 0 to 10
         self.action_space = list(range(11))
 
@@ -28,9 +26,10 @@ class StockEnvironment:
         self.starting_shares = starting_shares
         self.data = data
         self.scaled_data = scaled_data
+        self.time_data = time_data
 
-        self.data_deque = deque(maxlen=400)
-        self.scaled_data_deque = deque(maxlen=400)
+        self.data_deque = deque(maxlen=window_size)
+        self.scaled_data_deque = deque(maxlen=window_size)
 
         self.window_size = window_size
         self.feature_size = feature_size
@@ -50,10 +49,6 @@ class StockEnvironment:
             self.current_time_step_value = 0
 
         self.batch_size = 524
-        self.TiDE = TiDE(input_size=30, hidden_size=50, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=128)
-        self.TiDE.load_weights(ticker='AAPL', live=False)
-
-        torch.nn.utils.clip_grad_norm_(self.TiDE.parameters(), max_norm=1)
 
         filename = './portfolio_values.csv'
         if os.path.isfile(filename):
@@ -87,7 +82,7 @@ class StockEnvironment:
         """
         return self.current_cash + self.current_shares * self.get_current_price()
 
-    def step(self, action):
+    def step(self, action, epsilon):
         initial_shares = self.current_shares
         initial_share_price = self.get_current_price()
         initial_cash = self.current_cash
@@ -120,29 +115,13 @@ class StockEnvironment:
         if self.current_step >= len(self.data) - 2:
             done = True
         else:
-            self.update_state()
+            self.update_state(action, self.current_shares)
             done = False
 
-        self.data_deque.append(np.concatenate((self.data[self.current_step - 1], [initial_cash /
-                                                                                  initial_portfolio_value,
-                                                                                  initial_shares * initial_share_price / initial_portfolio_value])))
-        self.scaled_data_deque.append(np.concatenate((self.scaled_data[self.current_step - 1], [initial_cash /
-                                                                                                initial_portfolio_value,
-                                                                                                initial_shares * initial_share_price / initial_portfolio_value])))
-
+        new_state = self.get_current_state()
         reward = self.get_current_portfolio_value() - initial_portfolio_value
-        
-        if reward > 0:
-            reward = reward**2
-        else:
-            reward = reward**2
-            reward = -reward
 
-        self.render(reward=reward, share_price=self.current_price)
-
-        new_state = np.array(self.scaled_data_deque)
-        dataLoader = DataLoader(new_state)
-        new_state, _ = dataLoader.generate_training_data()
+        self.render(reward=reward, share_price=self.current_price, epsilon = epsilon)
 
         done = torch.tensor(done, dtype=torch.bool).to('cpu')
 
@@ -155,10 +134,7 @@ class StockEnvironment:
         Returns:
             torch.tensor: The current state of the environment.
         """
-        state = torch.tensor(np.array(self.scaled_data_deque), dtype=torch.float32).to('cpu')
-        print(state.shape)
-        state = self.TiDE(state, state)
-        print(state.shape)
+        state = torch.tensor(np.array(self.scaled_data_deque), dtype=torch.float32).unsqueeze(0).to('cpu')
         return state
 
     def reset(self):
@@ -176,13 +152,14 @@ class StockEnvironment:
 
         return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
-    def soft_reset(self, new_data, new_scaled_data):
+    def soft_reset(self, new_data, new_scaled_data, new_time_data):
         self.current_step = 0
         self.data = new_data
         self.scaled_data = new_scaled_data
+        self.time_data = new_time_data
         return torch.tensor(self.get_current_state(), dtype=torch.float32).to('cpu')
 
-    def render(self, reward, share_price):
+    def render(self, reward, share_price, epsilon):
         """
         Renders the current state of the environment.
 
@@ -191,17 +168,23 @@ class StockEnvironment:
         """
         if self.current_step <= len(self.data) - 1:
             print(
-                f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}, Shares: {self.current_shares:0.2f}')
+                f'Portfolio value: {self.get_current_portfolio_value():0.2f}, Buy and hold value: {self.get_buy_and_hold_portfolio_value():0.2f}, Reward: {reward:0.2f}, Share price: {share_price:0.2f}, Shares: {self.current_shares:0.2f}. Epsilon: {epsilon:0.2f}')
         else:
             print('End of dataset')
 
     # Update the current price, portfolio value, and portfolio value history
-    def update_state(self):
+    def update_state(self, action, shares):
         """
         Updates the current price, portfolio value, and portfolio value history.
         """
+        add_row_to_table("ticker_aapl_data", self.scaled_data_deque[-1], action, shares)
+
         self.current_price = self.get_current_price()
         self.current_portfolio_value = self.get_current_portfolio_value()
+        scaled_data_step = np.array(self.scaled_data[self.current_step])
+        time_step = np.array(self.time_data[self.current_step])
+        new_data = np.concatenate((scaled_data_step, time_step))
+        self.data_deque.append(new_data)
 
     # Returns the portfolio value if the agent buys and holds the stock from the beginning
     def get_buy_and_hold_portfolio_value(self):
@@ -223,8 +206,11 @@ class StockEnvironment:
         Push the first window_sizes to the data_deques
         """
         for i in range(self.window_size):
-            self.data_deque.append(np.concatenate((self.data[i], [self.current_cash, self.current_shares])))
-            self.scaled_data_deque.append(np.concatenate((self.scaled_data[i], [self.current_cash/self.current_portfolio_value, self.current_shares/self.current_portfolio_value])))
+            self.data_deque.append(self.data[i])
+            scaled_data_step = np.array(self.scaled_data[i])
+            time_step = np.array(self.time_data[i])
+            self.scaled_data_deque.append(np.concatenate((scaled_data_step, time_step)))
+            print(np.array(self.scaled_data_deque).shape)
 
 
 class ReplayMemory:

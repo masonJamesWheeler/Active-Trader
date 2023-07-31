@@ -7,7 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 import os
 import sys
 from dotenv import load_dotenv
-from Data.Data import get_stock_data, get_all_data
+from Data.data import get_stock_data, get_all_data
 
 # Load environment variables from .env file
 load_dotenv()

@@ -13,7 +13,6 @@ import pandas as pd
 import torch
 from time import sleep
 
-from alpaca.trading import TradingClient
 from Models.DQN_Agent import DQN, MetaModel, update_Q_values
 from Training.Utils import Transition, execute_action, initialize
 from alpha_vantage.techindicators import TechIndicators
@@ -21,7 +20,7 @@ from alpha_vantage.timeseries import TimeSeries
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
 import os
-from Data.Data import get_last_data
+from Data.data import get_last_data
 from Data.Get_Fast_Data import get_most_recent_data
 
 # Load environment variables from .env file
@@ -57,7 +56,6 @@ class LiveStockEnvironment:
 
         # self.update_indicators()
         self.api = tradeapi.REST(paper_alpaca_key, paper_alpaca_secret_key, base_url='https://paper-api.alpaca.markets', api_version='v2')
-        self.trading_client = TradingClient(paper_alpaca_key, paper_alpaca_secret_key)
 
         self.cash = 0
         self.share_value = 0

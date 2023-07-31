@@ -3,7 +3,7 @@ import pandas as pd
 from io import StringIO
 import sys
 
-from Data.Data import get_and_process_data
+from Data.data import get_and_process_data
 
 sys.path.append('../')
 import matplotlib.pyplot as plt

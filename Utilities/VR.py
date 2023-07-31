@@ -7,7 +7,7 @@ import pandas as pd
 import sys
 
 # Read in the data
-data = pd.read_csv('portfolio_values_1.csv')
+data = pd.read_csv('portfolio_values.csv')
 
 # Replace the 'Step' column with a new column that just contains the row number
 data['Step'] = range(len(data))

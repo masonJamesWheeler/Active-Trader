@@ -4,7 +4,7 @@ import os
 from collections import deque
 import random
 
-from Data.Data import get_and_process_data
+from Data.data import get_and_process_data
 from Data.DataLoader import DataLoader
 from test import TiDE
 import numpy as np

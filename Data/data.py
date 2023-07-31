@@ -1,10 +1,15 @@
+import concurrent.futures
 from datetime import datetime
 
 import joblib
 import torch
 from dateutil.relativedelta import relativedelta
 from sklearn.preprocessing import MinMaxScaler
-from Utilities.Indicators import *
+
+from Data.Indicators import *
+from alpha_vantage.techindicators import TechIndicators
+from alpha_vantage.timeseries import TimeSeries
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,19 +28,26 @@ ti = TechIndicators(key=alpha_vantage_api_key, output_format='pandas')
 # Alpha Vantage Base URL
 base_url = 'https://www.alphavantage.co/query?'
 
-def convert_time_to_trading_minutes(time_str):
-    # Try to extract the hour and minute from the string, allowing for times that don't include seconds
-    try:
-        dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+def timestamp_to_features(timestamp):
 
-    hour, minute = dt.hour, dt.minute
+    timestamp = timestamp.to_pydatetime()
 
-    # Convert the time to the minute of the trading day, subtracting the starting minute of the trading day
-    minute_of_day = (hour - 13) * 60 + minute - 30
+    # Define the starting point
+    start = datetime(2000, 1, 1)
 
-    return minute_of_day
+    # Calculate the difference between the timestamp and the starting point
+    difference = timestamp - start
+
+    # Convert the difference to minutes
+    minutes_since_start = difference.total_seconds() / 60
+
+    # Cyclical encoding for the hour and minute
+    hour_sin = np.sin(2 * np.pi * timestamp.hour/24)
+    hour_cos = np.cos(2 * np.pi * timestamp.hour/24)
+    minute_sin = np.sin(2 * np.pi * timestamp.minute/60)
+    minute_cos = np.cos(2 * np.pi * timestamp.minute/60)
+
+    return [minutes_since_start, hour_sin, hour_cos, minute_sin, minute_cos]
 
 def create_windows(data, length):
     '''
@@ -121,21 +133,37 @@ def get_all_data(symbol, interval, window_size, month="2003-01"):
     # Filter the DataFrame to include only rows that fall within regular trading hours
     data = data[(hour >= start_of_trading) & (hour < end_of_trading)]
 
-    # change the index to be numerical
-    data.reset_index(drop=True, inplace=True)
-
     # Drop the initial rows that have NaN values due to the rolling window calculations
     data.dropna(inplace=True)
+
+    dates = data.index
+    time_features = torch.tensor([timestamp_to_features(timestamp) for timestamp in dates])
+
+    # change the index to be numerical
+    data.reset_index(drop=True, inplace=True)
 
     # Get the Indices of the open, high, low, close, volume, and indicators columns
     columns_indices = {name: i for i, name in enumerate(data.columns)}
 
-    return data, columns_indices
+    return data, time_features, columns_indices
+
+def create_scaler(ticker):
+    all_months = get_all_months(2014, 1, 2023, 6)
+    all_data = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(get_all_data, ticker, '1min', 128, month): month for month in all_months}
+        for future in concurrent.futures.as_completed(futures):
+            all_data.append(torch.tensor(np.array(future.result()[0])))
+
+    all_data = torch.cat(all_data)
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaler.fit(all_data)
+    joblib.dump(scaler, f"Scalers/{ticker}_1min_scaler.pkl")
 
 
 def get_and_process_data(ticker, interval, window_size, month):
 
-    stock_data, columns = get_all_data(ticker, interval, window_size, month=month)
+    stock_data, dates, columns = get_all_data(ticker, interval, window_size, month=month)
     # Drop the initial rows that have NaN values due to the rolling window calculations
     stock_data.dropna(inplace=True)
     stock_data = stock_data.to_numpy()
@@ -145,27 +173,34 @@ def get_and_process_data(ticker, interval, window_size, month):
         scaled_df = scaler.transform(stock_data)
         print("Loaded scaler")
     else:
-        scaler = MinMaxScaler()
-        scaled_df = scaler.fit_transform(stock_data)
-        joblib.dump(scaler, f"Scalers/{ticker}_{interval}_scaler.pkl")
+        create_scaler(ticker)
+        scaler = joblib.load(f"Scalers/{ticker}_{interval}_scaler.pkl")
+        scaled_df = scaler.transform(stock_data)
         print("Created scaler")
 
     # Convert the numpy array to a PyTorch tensor
     df = torch.from_numpy(stock_data).float()
     scaled_df = torch.from_numpy(scaled_df).float()
 
-    return df, scaled_df, scaler
+    return df, scaled_df, dates, scaler
 
 def get_last_data(symbol, interval, month='2023-07', window_size=128):
     '''
     Get the last windowed data from the given symbol and interval
     '''
     # Get the data from the given symbol and interval
-    data, scaled_data, scaler = get_and_process_data(symbol, interval, window_size, month)
+    data, scaled_data, dates, scaler = get_and_process_data(symbol, interval, window_size, month)
     # Get the last length amount of data
     last_data = data[-window_size:]
     last_scaled_data = scaled_data[-window_size:]
-    return last_data, scaled_data, scaler
+    return last_data, last_scaled_data, scaler
 
 if __name__ == "__main__":
     alpha_vantage_api_key = alpha_vantage_api_key
+    ticker = "AAPL"
+    interval = "1min"
+    window_size = 128
+    month = "2023-07"
+    # data, scaled_data, dates, scaler = get_and_process_data(ticker, interval, window_size, month)
+    last_data, last_scaled_data, scaler = get_last_data(ticker, interval, month, window_size)
+    print(np.array(last_data).shape)

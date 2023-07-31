@@ -1,5 +1,5 @@
-from Data.Data import get_stock_data
-from Utilities.Indicators import *
+from Data.data import get_stock_data, timestamp_to_features
+from Data.Indicators import *
 from alpha_vantage.techindicators import TechIndicators
 from alpha_vantage.timeseries import TimeSeries
 import concurrent.futures
@@ -158,10 +158,11 @@ def get_most_recent_data(symbol, interval, window_size=128):
 def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07"):
     # Assuming that get_stock_data is a function that gets the OHLCV data
     data = get_stock_data(symbol, interval, month=month)
-    print(data)
+    # get the time_stamp array for the last index
+    time_array = timestamp_to_features(data.index[-1])
 
     # Initialize a zero array of length 30
-    fast_data = np.zeros(30)
+    fast_data = np.zeros(35)
 
     # Fill in the values
     fast_data[0] = data['open'][-1]
@@ -208,9 +209,15 @@ def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07"):
     fast_data[28] = fastk.iloc[-1]
     fast_data[29] = fastd.iloc[-1]
 
+    fast_data[30] = time_array[0]
+    fast_data[31] = time_array[1]
+    fast_data[32] = time_array[2]
+    fast_data[33] = time_array[3]
+    fast_data[34] = time_array[4]
+
     return fast_data
 
 
 if __name__ == "__main__":
-    print(get_most_recent_data("AAPL", "1min"))
+    # print(get_most_recent_data("AAPL", "1min"))
     print(get_most_recent_data2("AAPL", "1min"))

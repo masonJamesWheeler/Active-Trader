@@ -4,7 +4,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-from Data.Data import get_and_process_data
+from Data.data import get_and_process_data
 
 AlphaVantage_Free_Key = "A5QND05S0W7CU55E"
 
@@ -54,7 +54,7 @@ class TestDenseModel(unittest.TestCase):
         print("Test passed: Model outputs predictions with correct shape.")
         self.test_passed += 1
 
-        # Create a new model with the same architecture but random weights
+        # Create a new model with the same architecture but random BackTest_Weights
         new_model = dense_model(hp)
         new_predictions = new_model.predict(dummy_input)
 
@@ -131,13 +131,13 @@ class TestConvModel(unittest.TestCase):
         print("Test passed: Model outputs predictions with correct shape.")
         self.test_passed += 1
 
-        # Create a new model with the same architecture but random weights
+        # Create a new model with the same architecture but random BackTest_Weights
         new_model = conv_model(hp)
         new_predictions = new_model.predict(dummy_input)
 
         # Check if the predictions from the new model and the loaded model are significantly different
         self.assertGreater(np.mean(np.abs(new_predictions - predictions)), 0.05)
-        print("Test passed: Model's predictions changed significantly after loading weights.")
+        print("Test passed: Model's predictions changed significantly after loading BackTest_Weights.")
         self.test_passed += 1
 
 
