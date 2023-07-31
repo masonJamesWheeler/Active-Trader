@@ -4,6 +4,7 @@ import warnings
 from collections import deque, namedtuple
 from random import random, randrange
 import alpaca_trade_api as tradeapi
+import joblib
 import numpy as np
 import torch
 import torch.optim as optim
@@ -37,6 +38,12 @@ Transition = namedtuple('Transition',
 ticker = "AAPL"
 month = "2023-07"
 table_name = f'ticker_{ticker}_data'
+interval = "1Min"
+
+if os.path.exists(f"../Scalers/{ticker}_{interval}_scaler.pkl"):
+    scaler = joblib.load(f"../Scalers/{ticker}_{interval}_scaler.pkl")
+else:
+    scaler = None
 
 # Load the replay memory
 replay_memory = ReplayMemory(50000)
@@ -115,14 +122,14 @@ def update_portfolio_values():
 
 
 def get_new_state():
-    new_state = np.array(get_latest_n_rows(table_name, 127))
-    print(f'New state: {new_state.shape}')
-#   remove the [0], [-1], and [-2] columns
-    new_state = np.delete(new_state, [0, -1, -2], axis=1)
+    history = np.array(get_latest_n_rows(table_name, 127))[:, 1:-2]
+    print(f'New state: {history.shape}')
+    new_data = get_most_recent_data2(ticker, '1min', scaler=scaler)[np.newaxis, :]
 
-#   add the most recent data to the new state
-    new_state = np.append(new_state, get_most_recent_data2(symbol=ticker, interval='1min', window_size=128, month=month))
+    new_state = np.concatenate((history, new_data), axis=0)
+    print(new_state)
 
+    return new_state
 
 
 def listener(steps_done=0, C=10, epsilon=0.01):
@@ -173,4 +180,6 @@ def listener(steps_done=0, C=10, epsilon=0.01):
         time.sleep(1)
 
 if __name__ == '__main__':
-    listener()
+    # listener()
+    new_state = get_new_state()
+    print(new_state.shape)

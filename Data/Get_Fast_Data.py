@@ -1,3 +1,6 @@
+import numpy as np
+import torch
+
 from Data.data import get_stock_data, timestamp_to_features
 from Data.Indicators import *
 from alpha_vantage.techindicators import TechIndicators
@@ -155,14 +158,15 @@ def get_most_recent_data(symbol, interval, window_size=128):
     return np.array(fast_data)
 
 
-def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07"):
+def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07", scaler=None):
     # Assuming that get_stock_data is a function that gets the OHLCV data
     data = get_stock_data(symbol, interval, month=month)
     # get the time_stamp array for the last index
     time_array = timestamp_to_features(data.index[-1])
 
     # Initialize a zero array of length 30
-    fast_data = np.zeros(35)
+    fast_data = np.zeros(30)
+    additional_data = np.zeros(5)
 
     # Fill in the values
     fast_data[0] = data['open'][-1]
@@ -209,13 +213,23 @@ def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07"):
     fast_data[28] = fastk.iloc[-1]
     fast_data[29] = fastd.iloc[-1]
 
-    fast_data[30] = time_array[0]
-    fast_data[31] = time_array[1]
-    fast_data[32] = time_array[2]
-    fast_data[33] = time_array[3]
-    fast_data[34] = time_array[4]
+    additional_data[0] = time_array[0]
+    additional_data[1] = time_array[1]
+    additional_data[2] = time_array[2]
+    additional_data[3] = time_array[3]
+    additional_data[4] = time_array[4]
 
-    return fast_data
+    # If scaler is not None, scale the first 30 features
+    if scaler is not None:
+    #     add a axis to fast_data so that it can be scaled
+        fast_data = fast_data.reshape(1, -1)
+        fast_data = scaler.transform(fast_data)
+        fast_data = fast_data.reshape(-1)
+
+    # Combine the scaled and additional data
+    final_data = np.concatenate((additional_data, fast_data))
+
+    return torch.tensor(final_data)
 
 
 if __name__ == "__main__":
