@@ -94,31 +94,6 @@ class SigmoidDQN(DQN):
         x = torch.sigmoid(x)
         return x, hidden_state1, hidden_state2
 
-class MetaModel(nn.Module):
-    def __init__(self, input_size=2, hidden_layer_size=10, output_size=1, window_size=10):
-        super(MetaModel, self).__init__()
-        self.window_size = window_size
-        self.lstm = nn.LSTM(input_size, hidden_layer_size, batch_first=True)
-        self.fc = nn.Linear(hidden_layer_size, output_size)
-
-    def forward(self, x):
-        # Reshaping the input to fit the model
-        x = x.view(-1, self.window_size, 1)
-
-        lstm_out, _ = self.lstm(x)
-        # Getting the last output of the sequence
-        lstm_out = lstm_out[:, -1, :]
-
-        x = torch.sigmoid(self.fc(lstm_out))
-        return x
-
-    def load_weights(self, input_size, hidden_layer_size, output_size, window_size):
-        if os.path.exists(f'./BackTest_Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth'):
-            self.load_state_dict(torch.load(f'./BackTest_Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth'))
-
-    def save_weights(self, input_size, hidden_layer_size, output_size, window_size):
-        torch.save(self.state_dict(), f'./BackTest_Weights/MetaModel_{input_size}_{hidden_layer_size}_{output_size}_{window_size}.pth')
-
 def update_Q_values(batch, Q_network, target_network, optimizer, architecture, gamma=0.99):
     """
     Update the Q values and perform a backward pass.
@@ -127,7 +102,7 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
         batch: A batch of experiences containing states, actions, rewards, next states and hidden states.
         Q_network: The current Q network model.
         target_network: The target Q network model.
-        optimizer: The optimizer used to update the BackTest_Weights of the Q network.
+        optimizer: The optimizer used to update the weights of the Q network.
         architecture (str): The architecture of the Q network (e.g., 'LSTM').
         gamma (float, optional): The discount factor for future rewards. Defaults to 0.99.
 
@@ -166,24 +141,26 @@ def update_Q_values(batch, Q_network, target_network, optimizer, architecture, g
     # Compute current Q values
     current_Q_values, _, _ = Q_network(state_batch, hidden_state1_batch, hidden_state2_batch)
 
-    # Gather the Q values for the actions taken
+    # Gather the Q values for the actions taken. This is akin to applying the mask in Atari code.
     current_Q_values = current_Q_values.gather(1, action_batch.view(-1, 1)).squeeze()
 
-    # Compute Q values for next states
-    next_Q_values, _, _ = target_network(next_state_batch, next_hidden_state1_batch, next_hidden_state2_batch)
-    # For LSTM architecture, remove unnecessary dimension
+    with torch.autograd.set_grad_enabled(True):
+        # Compute Q values for next states using the target network for stability, akin to Atari code
+        future_rewards, _, _ = target_network(next_state_batch, next_hidden_state1_batch, next_hidden_state2_batch)
 
-    next_Q_values = next_Q_values.max(1)[0].detach()
+        # Keep only the maximum future reward for each sample, similar to `tf.reduce_max` in Atari code
+        future_rewards = future_rewards.max(1)[0].detach()
 
-    # Compute the target Q values
-    target_Q_values = reward_batch + (gamma * next_Q_values)
-    # Compute the loss between current and target Q values
-    loss = F.smooth_l1_loss(current_Q_values, target_Q_values)
+        # Compute the updated Q-values, akin to Atari code. Q value = reward + discount factor * expected future reward
+        updated_q_values = reward_batch + (gamma * future_rewards)
 
-    # Zero the gradients
-    optimizer.zero_grad()
-    # Perform a backward pass to compute gradients
-    loss.backward()
-    # Update the BackTest_Weights of the Q network
-    optimizer.step()
+        # Compute the loss between updated Q-values and the current Q-values for the action taken
+        loss = F.smooth_l1_loss(current_Q_values, updated_q_values)
+
+        # Perform a backward pass to compute gradients
+        loss.backward()
+
+        # Apply the gradients to update the weights of the Q network
+        optimizer.step()
+
 
