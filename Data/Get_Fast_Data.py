@@ -1,3 +1,8 @@
+import datetime
+import pickle
+from datetime import time
+
+import joblib
 import numpy as np
 import torch
 
@@ -221,17 +226,16 @@ def get_most_recent_data2(symbol, interval, window_size=128, month="2023-07", sc
 
     # If scaler is not None, scale the first 30 features
     if scaler is not None:
-    #     add a axis to fast_data so that it can be scaled
-        fast_data = fast_data.reshape(1, -1)
-        fast_data = scaler.transform(fast_data)
+        fast_data = scaler.transform(fast_data.reshape(1, -1))
         fast_data = fast_data.reshape(-1)
 
     # Combine the scaled and additional data
-    final_data = np.concatenate((additional_data, fast_data))
-
+    final_data = np.concatenate((fast_data, additional_data)).astype(float)
     return torch.tensor(final_data)
 
 
 if __name__ == "__main__":
-    # print(get_most_recent_data("AAPL", "1min"))
-    print(get_most_recent_data2("AAPL", "1min"))
+    ticker = "AAPL"
+    interval = "1min"
+    scaler = joblib.load(f"../Scalers/{ticker}_{interval}_scaler.pkl")
+    data = get_most_recent_data2(symbol=ticker, interval=interval, scaler=scaler)

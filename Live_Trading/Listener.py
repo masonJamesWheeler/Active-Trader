@@ -1,185 +1,337 @@
 import collections
+import logging
 import os
 import warnings
 from collections import deque, namedtuple
 from random import random, randrange
 import alpaca_trade_api as tradeapi
+from alpha_vantage.timeseries import TimeSeries
 import joblib
 import numpy as np
 import torch
 import torch.optim as optim
 from torch import device
-device = device("cuda:0" if torch.cuda.is_available() else "cpu")
 from Data.data import get_and_process_data, get_all_months
 from Data.Get_Fast_Data import get_most_recent_data2
 from Environment.StockEnvironment import ReplayMemory, epsilon_decay
-from Models.DQN_Agent import DQN, update_Q_values
+from Training.Utils import Transition, execute_action
+from Models.DQN_Agent import update_Q_values
 from PostGreSQL.Database import *
 from Training.Utils import *
 from datetime import datetime
 import time
 
-# Access the API keys from environment variables
-alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
-paper_alpaca_key = os.getenv("PAPER_ALPACA_KEY")
-paper_alpaca_secret_key = os.getenv("PAPER_ALPACA_SECRET_KEY")
 
-base_url = 'https://paper-api.alpaca.markets'
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-api = tradeapi.REST(paper_alpaca_key, paper_alpaca_secret_key, base_url='https://paper-api.alpaca.markets',
-                         api_version='v2')
+class Trading:
+    def __init__(self, ticker="AAPL", month="2023-07", interval="1Min"):
+        self.api_keys = self.get_api_keys()
+        self.ts = TimeSeries(key=self.api_keys[0], output_format='pandas')
+        self.ticker = ticker
+        self.month = month
+        self.interval = interval
+        self.table_name = f'ticker_{self.ticker}_data'
+        self.api = self.initialize_api()
+        self.scaler = self.load_scaler()
+        self.replay_memory = self.load_replay_memory()
+        self.Q_network, self.target_network, self.optimizer = self.load_networks()
+        self.last_hidden_state1, self.last_hidden_state2 = self.Q_network.init_hidden(1)
+        self.Q_network.to(DEVICE)
+        self.target_network.to(DEVICE)
+        self.last_state = self.get_new_state()
+        self.last_timestamp = self.last_state[0]
+        self.last_price = self.get_price()
+        self.last_shares = self.last_state[-1, -1]
+        self.action = 0
+        self.steps_done = 0
 
-warnings.filterwarnings('ignore')
+    def get_api_keys(self):
+        alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+        paper_alpaca_key = os.getenv("PAPER_ALPACA_KEY")
+        paper_alpaca_secret_key = os.getenv("PAPER_ALPACA_SECRET_KEY")
+        return alpha_vantage_api_key, paper_alpaca_key, paper_alpaca_secret_key
 
-Transition = namedtuple('Transition',
-                        ('state', 'hidden_state1', 'hidden_state2', 'action', 'next_state', 'reward',
-                         'next_hidden_state1', 'next_hidden_state2'))
+    def initialize_api(self):
+        api = tradeapi.REST(
+            self.api_keys[1],
+            self.api_keys[2],
+            base_url='https://paper-api.alpaca.markets',
+            api_version='v2'
+        )
+        return api
 
-ticker = "AAPL"
-month = "2023-07"
-table_name = f'ticker_{ticker}_data'
-interval = "1Min"
+    def load_scaler(self):
+        scaler_path = f"../Scalers/{self.ticker}_{self.interval}_scaler.pkl"
+        if os.path.exists(scaler_path):
+            scaler = joblib.load(scaler_path)
+        else:
+            scaler = None
+        return scaler
 
-if os.path.exists(f"../Scalers/{ticker}_{interval}_scaler.pkl"):
-    scaler = joblib.load(f"../Scalers/{ticker}_{interval}_scaler.pkl")
-else:
-    scaler = None
+    def load_replay_memory(self):
+        replay_memory = ReplayMemory(50000)
+        replay_memory.load_memory(self.ticker)
+        return replay_memory
 
-# Load the replay memory
-replay_memory = ReplayMemory(50000)
-replay_memory.load_memory(ticker)
+    def load_networks(self):
+        architecture = "RNN"
+        feature_size = 35
+        num_actions = 11
+        dropout_rate = 0.2
+        dense_layers = 2
+        hidden_size = 128
+        dense_size = 128
+        batch_size = 512
 
-# Load the DQNs
-architecture = "RNN"
-feature_size = 35
-num_actions = 11
-dropout_rate = 0.2
-hidden_size = 128
-dense_size = 128
-batch_size = 512
+        Q_network = DQN(
+            input_size=feature_size,
+            hidden_size=hidden_size,
+            num_actions=num_actions,
+            architecture=architecture,
+            dense_layers=dense_layers,
+            dense_size=dense_size,
+            dropout_rate=dropout_rate
+        )
 
-memoryReplay = ReplayMemory(50000)
+        target_network = DQN(
+            input_size=feature_size,
+            hidden_size=hidden_size,
+            num_actions=num_actions,
+            architecture=architecture,
+            dense_layers=dense_layers,
+            dense_size=dense_size,
+            dropout_rate=dropout_rate
+        )
 
-Q_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions,
-                architecture=architecture, dense_layers=dense_size, dense_size=dense_size,
-                dropout_rate=dropout_rate)
+        target_network.load_state_dict(Q_network.state_dict())
 
-target_network = DQN(input_size=feature_size, hidden_size=hidden_size, num_actions=num_actions,
-                     architecture=architecture, dense_layers=dense_size, dense_size=dense_size,
-                     dropout_rate=dropout_rate)
+        Q_network.load_weights(False, self.ticker, Q_network.dense_layers_num, Q_network.dense_size, Q_network.hidden_size,
+                               Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
 
-target_network.load_state_dict(Q_network.state_dict())
+        target_network.load_weights(True, self.ticker, Q_network.dense_layers_num, Q_network.dense_size,
+                                    Q_network.hidden_size,
+                                    Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
 
-Q_network.load_weights(False, ticker, Q_network.dense_layers_num, Q_network.dense_size, Q_network.hidden_size,
-                       Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
+        optimizer = optim.Adam(Q_network.parameters())
 
-target_network.load_weights(True, ticker, Q_network.dense_layers_num, Q_network.dense_size, Q_network.hidden_size,
-                            Q_network.dropout_rate, Q_network.input_size, Q_network.num_actions)
+        # Move the model to the device
+        Q_network.to(device)
+        target_network.to(device)
 
-optimizer = optim.Adam(Q_network.parameters())
+        return Q_network, target_network, optimizer
 
-last_hidden_state1, last_hidden_state2 = Q_network.init_hidden(1)
+    def perform_trade(self, action, asset_price):
+        try:
+            self.api.cancel_all_orders()
+            self.validate_action(action)
+            if action != 0:
+                portfolio_value, share_value = self.update_portfolio_values()
+                print(f"Portfolio Value: {portfolio_value}")
+                print(f"Share Value: {share_value}")
+                print(f"Asset Price: {asset_price}")
 
-# Move the model to the device
-Q_network.to(device)
-target_network.to(device)
+                out_of_bounds, order = self.execute_trade(action, portfolio_value, share_value, asset_price)
+        except Exception as e:
+            logging.error(f"Failed to perform trade: {e}")
 
-# Definitions of the price, share, and cash variables
-last_state = get_latest_row(table_name)
-last_timestamp = last_state[0]
-last_price = last_state[4]
-last_shares = last_state[-1]
+    def get_price(self):
+        try:
+            price = float(self.ts.get_quote_endpoint(symbol=self.ticker)[0]['05. price'].iloc[0])
+            return price
+        except Exception as e:
+            logging.error(f"Failed to get price: {e}")
 
-action = 0
-steps_done = 0
+    def validate_action(self, action):
+        try:
+            if action not in range(11):
+                raise ValueError("Action not recognized")
+        except ValueError as e:
+            logging.error(f"Invalid action value: {e}")
 
-def test1():
-    ohlvc = get_latest_ohlcv(table_name)
-    timestamp = ohlvc[0]
-    open = ohlvc[1]
-    high = ohlvc[2]
-    low = ohlvc[3]
-    close = ohlvc[4]
-    volume = ohlvc[5]
-    print(f'Latest OHLCV: {timestamp}, {open}, {high}, {low}, {close}, {volume}')
+    def execute_trade(self, action, portfolio_value, initial_shares, asset_price):
+        try:
+            order = None
+            desired_portfolio_value = self.get_desired_portfolio_value(action, portfolio_value)
+            print(f"Desired Portfolio Value: {desired_portfolio_value}")
+            desired_shares = self.get_share_details(asset_price, desired_portfolio_value)
+            print(f"Initial Shares: {initial_shares}")
+            print(f"Desired Shares: {desired_shares}")
 
+            just_closed_position = False
 
-def update_portfolio_values():
-    # Get the account information
-    account = api.get_account()
+            # Check if we are trying to switch from long to short position
+            if desired_shares < 0 and initial_shares > 0:
+                self.api.close_position(self.ticker)  # Close the long position
+                just_closed_position = True
+                initial_shares = 0  # We don't have any shares now
+                print(f"Closed long position before opening short position")
+            # Check if we are trying to switch from short to long position
+            elif desired_shares > 0 and initial_shares < 0:
+                self.api.close_position(self.ticker)  # Close the short position
+                just_closed_position = True
+                initial_shares = 0  # We don't have any shares now
+                print(f"Closed short position before opening long position")
 
-    # Check if the account data is valid
-    if account is None or not hasattr(account, 'portfolio_value'):
-        print("Invalid account data. Exiting...")
-        return False
+            side, shares_to_trade = self.get_side_and_shares_to_trade(initial_shares, desired_shares)
+            print(f"Side: {side}")
+            print(f"Shares to Trade: {shares_to_trade}")
 
-    # Update the portfolio and account data stored in the environment
-    portfolio_value = float(account.portfolio_value)
-    share_value = float(account.position_value)
-    cash = float(account.cash)
+            out_of_bounds, order = self.submit_order(side, shares_to_trade, just_closed_position)
+            return out_of_bounds, order
+        except Exception as e:
+            logging.error(f"Failed to execute trade: {e}")
 
-    return portfolio_value, share_value, cash
+    def get_desired_portfolio_value(self, action, portfolio_value):
+        try:
+            if action < 6:
+                return portfolio_value * action * 0.2
+            else:
+                return portfolio_value * (action - 5) * -0.05
+        except Exception as e:
+            logging.error(f"Failed to get desired portfolio value: {e}")
 
+    def get_share_details(self, asset_price, desired_portfolio_value):
+        try:
+            return int(desired_portfolio_value / asset_price)
+        except Exception as e:
+            logging.error(f"Failed to get share details: {e}")
 
-def get_new_state():
-    history = np.array(get_latest_n_rows(table_name, 127))[:, 1:-2]
-    print(f'New state: {history.shape}')
-    new_data = get_most_recent_data2(ticker, '1min', scaler=scaler)[np.newaxis, :]
+    def get_side_and_shares_to_trade(self, initial_shares, desired_shares):
+        try:
+            if desired_shares < initial_shares:
+                return 'sell', initial_shares - desired_shares
+            elif desired_shares > initial_shares:
+                return 'buy', desired_shares - initial_shares
+            else:
+                return 'hold', 0
+        except Exception as e:
+            logging.error(f"Failed to determine trade side and shares: {e}")
 
-    new_state = np.concatenate((history, new_data), axis=0)
-    print(new_state)
+    def submit_order(self, side, shares, just_closed_position=False):
+        try:
+            if side == 'hold' or shares == 0:
+                print("No order submitted, holding current position.")
+                return False, None
 
-    return new_state
+            if just_closed_position:
+                time.sleep(1)  # Wait for a second before submitting the new order
 
+            order = self.api.submit_order(symbol=self.ticker, qty=shares, side=side, type='market', time_in_force='day')
+            print(f"{side} order for {shares} shares submitted")
+            return False, order
+        except Exception as e:
+            logging.error(f"Order submission failed: {e}")
+            return True, None
 
-def listener(steps_done=0, C=10, epsilon=0.01):
-    current_minute = datetime.now().minute
+    def update_portfolio_values(self):
+        try:
+            account = self.api.get_account()
+            try:
+                position = self.api.get_position(self.ticker)
+            except Exception as e:
+                position = None
 
-    while True:
+            if position is not None:
+                shares = int(position.qty)
+            else:
+                shares = 0
 
-        if datetime.now().minute != current_minute:
-            current_minute = datetime.now().minute
+            if account is None or not hasattr(account, 'portfolio_value'):
+                print("Invalid account data. Exiting...")
+                return None, None, None
+            return float(account.portfolio_value), shares
+        except Exception as e:
+            logging.error(f"Failed to update portfolio values: {e}")
 
-            steps_done += 1
+    def get_new_state(self):
+        try:
+            history = np.array(get_latest_n_rows(self.table_name, 127))[:, 1:-2].astype(float)
+            new_data = get_most_recent_data2(self.ticker, '1min', scaler=self.scaler)[np.newaxis, :]
+            return np.concatenate((history, new_data), axis=0)
+        except Exception as e:
+            logging.error(f"Failed to get new state: {e}")
 
-            action, hidden_state1, hidden_state2, epsilon = execute_action(state=last_state, hidden_state1=last_hidden_state1, hidden_state2=last_hidden_state2,
-                                                                           epsilon= epsilon, num_actions=11, Q_network=Q_network)
+    def get_new_state2(self):
+        try:
+            history = self.scaler.inverse_tranform(np.array(get_latest_n_rows(self.table_name, 127))[:, 1:31].astype(float))
+            print(history)
+            new_data = self.ts.get_quote_endpoint(self.ticker)[0]
+            new_data = np.array([new_data['02. open'], new_data['03. high'],
+                              new_data['04. low'], new_data['05. price'],
+                                 new_data['06. volume']]).reshape(1,5).astype(float)
+        #   unscale the history
+        except Exception as e:
+            logging.error(f"Failed to get new state: {e}")
 
+    def listener(self, steps_done=0, C=10, epsilon=0.2):
+        current_minute = datetime.now().minute
+        previous_action = None  # Initial value for previous action
+        while True:
+            try:
+                if datetime.now().minute != current_minute:
+                    current_minute = datetime.now().minute
+                    steps_done += 1
+                    action, hidden_state1, hidden_state2, epsilon = execute_action(self.last_state,
+                                                                                   self.last_hidden_state1,
+                                                                                   self.last_hidden_state2,
+                                                                                   epsilon,
+                                                                                   11,
+                                                                                   self.Q_network)
 
-            # Gather the latest data
-            new_state = get_new_state()
+                    new_state = self.get_new_state()
+                    new_price = self.get_price()
 
-            new_price = new_state[3]
-            reward = last_shares * (new_price - last_price)
+                    # If we have a previous action, then calculate reward, perform trade, and print
+                    if previous_action is not None:
+                        reward = self.last_shares * (new_price - self.last_price)
 
-            transition = Transition(state=last_state, hidden_state1=last_hidden_state1, hidden_state2=last_hidden_state2,
-                                    action=action, next_state=new_state, reward=reward,
-                                    next_hidden_state1=hidden_state1, next_hidden_state2=hidden_state2)
+                        transition = Transition(state=self.last_state, hidden_state1=self.last_hidden_state1,
+                                                hidden_state2=self.last_hidden_state2,
+                                                action=previous_action, next_state=new_state, reward=reward,
+                                                next_hidden_state1=hidden_state1, next_hidden_state2=hidden_state2)
 
-            # Update the replay memory
-            replay_memory.push(transition)
+                        self.replay_memory.push(transition)
 
-            if len(memoryReplay) >= batch_size:
-                # Update the Q-network
-                transitions = memoryReplay.sample(batch_size)
-                batch = Transition(*zip(*transitions))
-                update_Q_values(batch, Q_network, target_network, optimizer, architecture)
+                        if len(self.replay_memory) >= 512:
+                            transitions = self.replay_memory.sample(512)
+                            batch = Transition(*zip(*transitions))
+                            update_Q_values(batch, self.Q_network, self.target_network, self.optimizer, "RNN")
 
-            # If the number of steps is a multiple of C, update the target network
-            if steps_done % C == 0:
-                target_network.load_state_dict(Q_network.state_dict())
+                        if steps_done % C == 0:
+                            self.target_network.load_state_dict(self.Q_network.state_dict())
 
-            last_state = new_state
-            last_price = new_price
-            last_shares = new_shares
+                        self.perform_trade(previous_action, new_price)  # Perform trade with previous action
+                        print(
+                            f"Action: {previous_action.item()}, Reward: {reward}, Portfolio Value: {self.portfolio_value}")
+                        add_row_to_table(self.table_name, self.last_state[-1], previous_action.item(), self.last_shares)
 
-            last_action = action
+                    # Update last states, price, and portfolio values
+                    self.last_state = new_state
+                    self.last_price = new_price
+                    self.portfolio_value, self.last_shares = self.update_portfolio_values()
 
+                    self.last_hidden_state1 = hidden_state1
+                    self.last_hidden_state2 = hidden_state2
 
+                    # Now we update the previous action to the current one
+                    previous_action = action
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                continue
 
-        time.sleep(1)
+            time.sleep(1)
+
 
 if __name__ == '__main__':
-    # listener()
-    new_state = get_new_state()
-    print(new_state.shape)
+    try:
+        # Instantiate a Trading object with your desired parameters
+        trader = Trading(ticker='AAPL', month='2023-07', interval='1Min')
+
+        # # Start the trading process
+        # trader.listener()
+        trader.get_new_state2()
+
+    except Exception as e:
+        print(f'An error occurred: {e}')
+

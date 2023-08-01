@@ -2,6 +2,7 @@ import concurrent.futures
 from datetime import datetime
 
 import joblib
+import numpy as np
 import torch
 from dateutil.relativedelta import relativedelta
 from sklearn.preprocessing import MinMaxScaler
@@ -68,7 +69,6 @@ def create_windows(data, length):
 
 
 def get_stock_data(symbol, interval, month = '2023-07'):
-    # Alpha Vantage Base URL
     stock_df, _ = ts.get_intraday(symbol=symbol, interval=interval, outputsize="full", month=month)
     # remove the numbers from the column names, i.e 1. open -> open
     stock_df = pd.DataFrame(stock_df)
@@ -170,9 +170,16 @@ def get_and_process_data(ticker, interval, window_size, month):
 
     if os.path.exists(f"Scalers/{ticker}_{interval}_scaler.pkl"):
         scaler = joblib.load(f"Scalers/{ticker}_{interval}_scaler.pkl")
+        print(np.array(stock_data).shape)
+        scaled_df = scaler.transform(stock_data)
+        print("Loaded scaler")
+    elif os.path.exists(f"../Scalers/{ticker}_{interval}_scaler.pkl"):
+        scaler = joblib.load(f"../Scalers/{ticker}_{interval}_scaler.pkl")
+        print(np.array(stock_data).shape)
         scaled_df = scaler.transform(stock_data)
         print("Loaded scaler")
     else:
+        print("Creating scaler")
         create_scaler(ticker)
         scaler = joblib.load(f"Scalers/{ticker}_{interval}_scaler.pkl")
         scaled_df = scaler.transform(stock_data)
@@ -201,6 +208,5 @@ if __name__ == "__main__":
     interval = "1min"
     window_size = 128
     month = "2023-07"
-    # data, scaled_data, dates, scaler = get_and_process_data(ticker, interval, window_size, month)
-    last_data, last_scaled_data, scaler = get_last_data(ticker, interval, month, window_size)
-    print(np.array(last_data).shape)
+    data, scaled_data, dates, scaler = get_and_process_data(ticker, interval, window_size, month)
+
