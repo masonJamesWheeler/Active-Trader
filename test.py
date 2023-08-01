@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import concurrent.futures
-from Data.Data import get_and_process_data, get_all_data, get_all_months
+from Data.data import get_and_process_data, get_all_data, get_all_months
 from Data.DataLoader import DataLoader
 from Data.Get_Fast_Data import get_most_recent_data, get_most_recent_data2
 from alpha_vantage.techindicators import TechIndicators
@@ -14,6 +14,9 @@ from dotenv import load_dotenv
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from huggingface_hub import hf_hub_download
+from transformers import TimeSeriesTransformerForPrediction, TimeSeriesTransformerConfig
 
 # Load environment variables from .env file
 
@@ -47,15 +50,16 @@ class ResidualBlock(nn.Module):
         out = self.layer_norm(out) # Apply layer normalization.
         return out # Return the output.
 
+
 class Encoder(nn.Module):
-    def __init__(self, input_size, output_dim, num_layers):
+    def __init__(self, intermediate_features, output_dim, num_layers):
         super(Encoder, self).__init__()
-        self.layers = nn.ModuleList([ResidualBlock(input_size if i==0 else output_dim, output_dim) for i in range(num_layers)]) # Encoder is composed of a sequence of ResidualBlocks.
+        self.layers = nn.ModuleList([ResidualBlock(intermediate_features if i==0 else output_dim, output_dim) for i in range(num_layers)])
 
     def forward(self, x):
-        for layer in self.layers: # Pass the input through each layer.
+        for layer in self.layers:
             x = layer(x)
-        return x # Return the output after passing through all layers.
+        return x
 
 class Decoder(nn.Module):
     def __init__(self, input_size, num_layers, output_dim):
@@ -69,12 +73,13 @@ class Decoder(nn.Module):
         return self.linear(x) # Apply the final linear layer and return the output.
 
 class FeatureProjection(nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, intermediate_features):
         super(FeatureProjection, self).__init__()
-        self.linear = nn.Linear(in_features, out_features) # Linear layer to project the input features to a different dimension.
+        self.linear = nn.Linear(in_features, intermediate_features)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        return self.linear(x) # Apply the linear layer and return the output.
+        return self.relu(self.linear(x)) # Apply ReLU after linear transformation
 
 class TemporalAttention(nn.Module):
     def __init__(self, hidden_dim):
@@ -94,6 +99,7 @@ class TemporalDecoder(nn.Module):
         self.attention = TemporalAttention(hidden_dim) # Temporal attention mechanism.
         self.residual_block = ResidualBlock(2 * hidden_dim, out_features)  # Residual block for processing inputs.
         self.covariate_projection = nn.Linear(covariate_dim, hidden_dim)  # Linear layer for projecting covariates.
+        self.relu = nn.ReLU()  # New ReLU activation
         self.output_len = output_len
 
     def forward(self, x, projected_covariates):
@@ -102,60 +108,36 @@ class TemporalDecoder(nn.Module):
             attention = self.attention(x) # Calculate the attention weights.
             context = torch.sum(attention * x, dim=1)  # Calculate the context vector.
             context = context.unsqueeze(1)  # Add an extra dimension to match the tensor sizes.
-            projected_covariate = self.covariate_projection(projected_covariates[:, t, :]).unsqueeze(1)  # Project the covariates and add an extra dimension.
+            projected_covariate = self.relu(self.covariate_projection(projected_covariates[:, t, :])).unsqueeze(1)  # Apply ReLU after projection
             x = self.residual_block(torch.cat((context, projected_covariate), dim=-1))  # Concatenate context and projected_covariates, then apply residual_block.
             outputs[:, t, :] = x.squeeze(1) # Remove the extra dimension and add the output to the outputs tensor.
         return outputs
 
 
 class TiDE(nn.Module):
-    def __init__(self, input_size, num_encoder_layers, num_decoder_layers, output_dim, projected_dim):
+    def __init__(self, input_size, num_encoder_layers, num_decoder_layers, output_dim, intermediate_dim):
         super(TiDE, self).__init__()
-        # The FeatureProjection layer is used to project the input features into a different dimension. This is typically used when we want to reduce the dimensionality of our input.
-        self.feature_projection = FeatureProjection(input_size, projected_dim)
-
-        # The Encoder consists of a number of ResidualBlocks that are designed to encode the input sequence into a lower-dimensional representation.
-        self.encoder = Encoder(projected_dim, output_dim, num_encoder_layers)
-
-        # The Decoder also consists of a number of ResidualBlocks that are designed to decode the low-dimensional representation back into the original dimension. In this case, it is used to decode the encoded sequence into a prediction for the next time step.
+        self.feature_projection = FeatureProjection(input_size, intermediate_dim)
+        self.encoder = Encoder(intermediate_dim, output_dim, num_encoder_layers)
         self.dense_decoder = Decoder(output_dim, num_decoder_layers, output_dim)
-
-        # The TemporalDecoder is designed to process the sequence in a time-dependent manner. It applies attention to the sequence at each time step and uses the context vector and the projected covariates to predict the output at that time step.
         self.temporal_decoder = TemporalDecoder(output_dim, output_dim, input_size, output_dim, 10)
-
-        # The global_residual_connection is a linear layer used to create a shortcut connection from the input to the output. This is used in the global attention mechanism to help retain information from the input that might be lost during the encoding and decoding processes.
         self.global_residual_connection = nn.Linear(input_size, output_dim)
-
-        # The global_attention is an attention mechanism that is applied to the output of the global_residual_connection. This helps the model to focus on the most important parts of the input when making its predictions.
-        self.global_attention = TemporalAttention(output_dim)  # added this line
+        self.global_attention = TemporalAttention(output_dim)
+        # Add a non-linearity after the global_residual_connection
+        self.global_residual_activation = nn.ReLU()
 
     def forward(self, x, covariates):
-        # Project the input features into a different dimension using the feature_projection layer.
-        projected_x = self.feature_projection(x)
-
-        # Encode the projected input into a lower-dimensional representation using the encoder.
-        encoded_x = self.encoder(projected_x)
-
-        # Decode the encoded representation back into the original dimension using the decoder. This provides a dense prediction for the next time step.
+        intermediate_x = self.feature_projection(x)
+        encoded_x = self.encoder(intermediate_x)
         decoded_x = self.dense_decoder(encoded_x)
-
-        # Apply the temporal decoder to the encoded sequence and the covariates. This provides a time-dependent prediction for the next time step.
         final_output = self.temporal_decoder(encoded_x, covariates)
-
-        # Apply global attention to reduce sequence length
-        # First, apply the global_residual_connection to the input to create a shortcut connection.
         global_residual = self.global_residual_connection(x)
-
-        # Then, apply the global_attention to the output of the global_residual_connection. This produces an attention distribution over the input sequence.
+        # Apply the non-linearity to the global_residual
+        global_residual = self.global_residual_activation(global_residual)
         attention = self.global_attention(global_residual)
-
-        # Multiply the attention distribution with the global_residual to get a weighted sum of the input features. This gives more importance to the features that the attention mechanism thinks are more relevant.
         global_residual = torch.sum(attention * global_residual, dim=1)  # shape: [batch_size, hidden_dim]
-
-        # Expand the global_residual to match the shape of the final_output. This is done so that the global_residual can be added to the final_output.
         global_residual = global_residual.unsqueeze(1).expand(-1, 10, -1)  # shape: [batch_size, 10, hidden_dim]
 
-        # Finally, add the global_residual to the final_output. This allows the model to retain some of the information from the input that might have been lost during the encoding and decoding processes.
         return final_output + global_residual
 
     def save_weights(self, ticker, epoch, live=True):
@@ -184,6 +166,85 @@ class TiDE(nn.Module):
             print(f"No weights found for {ticker}. Starting with random weights.")
 
 
+class FinancialPredictor(nn.Module):
+    def __init__(self, price_feature_num, time_feature_num, hidden_dim, num_layers, output_dim, output_minutes, dropout_rate=0.2):
+        super(FinancialPredictor, self).__init__()
+
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.output_minutes = output_minutes
+
+        self.lstm_price = nn.LSTM(price_feature_num, hidden_dim, num_layers, dropout=dropout_rate, batch_first=True)
+        self.lstm_time = nn.LSTM(time_feature_num, hidden_dim, num_layers, dropout=dropout_rate, batch_first=True)
+
+        # Transformation LSTM to change sequence length
+        self.lstm_transform = nn.LSTM(hidden_dim * 2, hidden_dim * 2, num_layers, dropout=dropout_rate, batch_first=True)
+
+        self.dropout = nn.Dropout(dropout_rate)
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+
+        # Non-linearity (ReLU)
+        self.relu = nn.ReLU()
+
+    def forward(self, price_data, time_data):
+        h0_price = torch.zeros(self.num_layers, price_data.size(0), self.hidden_dim).to(price_data.device)
+        c0_price = torch.zeros(self.num_layers, price_data.size(0), self.hidden_dim).to(price_data.device)
+
+        h0_time = torch.zeros(self.num_layers, time_data.size(0), self.hidden_dim).to(time_data.device)
+        c0_time = torch.zeros(self.num_layers, time_data.size(0), self.hidden_dim).to(time_data.device)
+
+        out_price, _ = self.lstm_price(price_data, (h0_price, c0_price))
+        out_time, _ = self.lstm_time(time_data, (h0_time, c0_time))
+
+        # Apply Dropout after LSTM
+        out_price = self.dropout(out_price)
+        out_time = self.dropout(out_time)
+
+        # Concatenate the outputs
+        out = torch.cat((out_price, out_time), dim=2)
+
+        # Transformation LSTM to change sequence length
+        h0_transform = torch.zeros(self.num_layers, out.size(0), self.hidden_dim * 2).to(out.device)
+        c0_transform = torch.zeros(self.num_layers, out.size(0), self.hidden_dim * 2).to(out.device)
+        out, _ = self.lstm_transform(out, (h0_transform, c0_transform))
+
+        # Slice the sequence to desired output length
+        out = out[:, :self.output_minutes, :]
+
+        # Apply Fully Connected Layers with ReLU activations and Dropout
+        out = self.dropout(self.relu(self.fc1(out)))
+        out = self.fc2(out)
+
+        return out
+
+    def save_weights(self, ticker, epoch, live=True):
+        if live:
+            dir_path = f'Live_Weights'
+        else:
+            dir_path = f'BackTest_Weights'
+
+        dir_path = f'{dir_path}/{ticker}'
+
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        torch.save(self.state_dict(), f'{dir_path}/TiDE_{epoch}.pth')
+
+    def load_weights(self, ticker, live=True):
+        if live:
+            dir_path = f'Live_Weights'
+        else:
+            dir_path = f'BackTest_Weights'
+        i = 0
+        while os.path.isfile(f'{dir_path}/{ticker}/TiDE_{i}.pth'):
+            i += 1
+        if i > 0:
+            self.load_state_dict(torch.load(f'{dir_path}/{ticker}/TiDE_{i - 1}.pth'))
+        else:
+            print(f"No weights found for {ticker}. Starting with random weights.")
+
 def create_sequences(data, seq_length, pred_length):
     xs = []
     ys = []
@@ -197,32 +258,31 @@ def create_sequences(data, seq_length, pred_length):
     return torch.stack(xs), torch.stack(ys)
 
 def get_and_process_data_and_generate_training_data(month):
-    data, scaled_data, scaler = get_and_process_data('AAPL', '1Min', 128, month=month)
+    data, scaled_data, time_features, scaler = get_and_process_data('AAPL', '1Min', 128, month=month)
     data_loader = DataLoader(scaled_data)
+    date_data_loader = DataLoader(time_features)
     x, y = data_loader.generate_training_data()
-    return torch.tensor(x), torch.tensor(y[:, :, 0:5])
+    time_x, time_y = date_data_loader.generate_training_data()
+
+    return (torch.tensor(x).float(), torch.tensor(y[:, :, 0:5]).float(),
+            torch.tensor(time_x).float(), torch.tensor(time_y).float())
+
 
 def main():
-    model = TiDE(input_size=30, num_encoder_layers=2, num_decoder_layers=2, output_dim=5,
-                 projected_dim=10)
-
-    # Move model to GPU if available
-    if torch.cuda.is_available():
-        model.cuda()
-
     ticker = 'AAPL'
     live = False
 
-    model.load_weights(ticker=ticker, live=live)
+    model = FinancialPredictor(price_feature_num=30, time_feature_num=5, hidden_dim=16, num_layers=2,
+                               output_dim=5, output_minutes=16)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
+    model.load_weights(ticker, live=live)
 
-    # Use mean squared error loss
-    criterion = nn.MSELoss()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Use the Adam optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    # Use the Mean Squared Error loss function
+    criterion = nn.MSELoss()
 
     # Number of epochs
     epochs = 100
@@ -230,13 +290,7 @@ def main():
     if live:
         months = get_all_months(2010, 1, 2023, 6)
     else:
-        months = get_all_months(2014, 1, 2022, 1)
-
-    test_month = '2023-07'
-    test_data, test_scaled_data, test_scaler = get_and_process_data(ticker, '1Min', 128, month=test_month)
-    test_data_loader = DataLoader(test_scaled_data)
-    test_x, test_y = test_data_loader.generate_training_data()
-    test_y = test_y[:, :, 0:5]
+        months = get_all_months(2016, 1, 2022, 1)
 
     all_data = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -244,34 +298,50 @@ def main():
         for future in concurrent.futures.as_completed(futures):
             all_data.append(future.result())
 
+
+    test_month = '2022-03'
+    test_data, test_scaled_data, date_features, test_scaler = get_and_process_data(ticker, '1Min', 128, month=test_month)
+
+    test_data_loader = DataLoader(test_scaled_data)
+    test_date_data_loader = DataLoader(date_features)
+    test_x, test_y = test_data_loader.generate_training_data()
+    test_time_x, test_time_y = test_date_data_loader.generate_training_data()
+
+    test_x = test_x.float()
+    test_y = test_y[:, :, 0:5].float()
+    test_time_x = test_time_x.float()
+
+    best_loss = 1000000
+
     # Train the model
     for epoch in range(epochs):
-        for x, y in all_data:
-            x = x.to(device)
-            y = y.to(device)
+        for x, y, time_x, time_y in all_data:
+            x = x.to(device) # X is shaped [batch_size, 128, 30]
+            y = y.to(device) # Y is shaped [batch_size, 128, 5]
+            time_x = time_x.to(device) # X is shaped [batch_size, 128, 5]
 
             model.train()
             optimizer.zero_grad()
 
             # Forward pass
-            outputs = model(x, x)
-            loss_mae = criterion(outputs, y)
-            loss = loss_mae
+            y_pred = model(x, time_x)
+            y_test = model(test_x, test_time_x)
+
+            loss = criterion(y_pred, y)
+            test_loss = criterion(y_test, test_y)
 
             # Now backpropagate using this total loss
             loss.backward()
             optimizer.step()
 
-            # Evaluate the model
-            model.eval()
-            test_outputs = model(test_x.to(device), test_x.to(device))
-            test_loss_mae = criterion(test_outputs, test_y.to(device))
-            test_loss = test_loss_mae
             print('Epoch: {}, Loss: {}, Test Loss: {}'.format(epoch, loss.item(), test_loss.item()))
 
-        # Save the model to the run folder
-        model.save_weights(ticker, epoch, live=live)
+            if test_loss.item() < best_loss:
+                best_loss = test_loss.item()
+                model.save_weights(ticker=ticker, live=live, epoch=epoch)
 
+            # Clear the stack
+            torch.cuda.empty_cache()
 
 def model_prediction():
     ticker = 'AAPL'
@@ -314,54 +384,48 @@ def model_prediction():
 
 def model_visual():
     ticker = 'AAPL'
+    test_month = '2022-03'
+    test_data, test_scaled_data, date_features, test_scaler = get_and_process_data(ticker, '1Min', 128,
+                                                                                   month=test_month)
 
-    model = TiDE(input_size=30, num_encoder_layers=2, num_decoder_layers=2, output_dim=5, projected_dim=10)
+    test_data_loader = DataLoader(test_scaled_data)
+    test_date_data_loader = DataLoader(date_features)
+    test_x, test_y = test_data_loader.generate_training_data()
+    test_time_x, test_time_y = test_date_data_loader.generate_training_data()
 
-    # Move model to GPU if available
-    if torch.cuda.is_available():
-        model.cuda()
+    test_x = test_x.float()
+    test_y = test_y[:, :, 0:5].float()
+    test_time_x = test_time_x.float()
+
+    test_x = torch.tensor(test_x[-1]).unsqueeze(0)
+    test_time_x = torch.tensor(test_time_x[-1]).unsqueeze(0)
+    test_y = torch.tensor(test_y[-1]).unsqueeze(0)
+
+    model = FinancialPredictor(price_feature_num=30, time_feature_num=5, hidden_dim=16, num_layers=2,
+                                 output_dim=5, output_minutes=16)
 
     model.load_weights(ticker=ticker, live=False)
     model.eval()
-    test_month = '2023-07'
-    test_data, test_scaled_data, test_scaler = get_and_process_data(ticker, '1Min', 128, month=test_month)
 
-    index = len(test_scaled_data) - 450
+    prediction = model(test_x, test_time_x)
 
-    test_data_loader = DataLoader(test_scaled_data)
-    test_x, test_y = test_data_loader.get_data(index)
-    test_x2 = test_data_loader.get_input_data(index)
+    prediction = prediction.detach().numpy()
 
-    test_x2 = torch.tensor(np.expand_dims(test_x2, axis=0))
-
-    test_y2 = model(test_x2, test_x2).detach().numpy()
-
-    fig, ax = plt.subplots(4, 1, figsize=(15, 10))
-    ax[0].plot(test_x[:, 0], label='Open')
-    ax[0].plot(test_x[:, 1], label='Low')
-    ax[0].plot(test_x[:, 2], label='High')
-    ax[0].plot(test_x[:, 3], label='Close')
-
-    ax[1].plot(test_x2[-1, :, 0], label='Open')
-    ax[1].plot(test_x2[-1, :, 1], label='Low')
-    ax[1].plot(test_x2[-1, :, 2], label='High')
-    ax[1].plot(test_x2[-1, :, 3], label='Close')
-
-    ax[2].plot(test_y[:, 0], label='Open')
-    ax[2].plot(test_y[:, 1], label='Low')
-    ax[2].plot(test_y[:, 2], label='High')
-    ax[2].plot(test_y[:, 3], label='Close')
-
-    ax[3].plot(test_y2[-1, :, 0], label='Open')
-    ax[3].plot(test_y2[-1, :, 1], label='Low')
-    ax[3].plot(test_y2[-1, :, 2], label='High')
-    ax[3].plot(test_y2[-1, :, 3], label='Close')
-
+    fig, ax = plt.subplots(2, 1, figsize=(15, 10))
+    ax[0].plot(test_y[0, :, 0], label='Actual')
+    ax[0].plot(test_y[0, :, 1], label='Actual')
+    ax[0].plot(test_y[0, :, 2], label='Actual')
+    ax[0].plot(test_y[0, :, 3], label='Actual')
+    ax[1].plot(prediction[0, :, 0], label='Open')
+    ax[1].plot(prediction[0, :, 1], label='Low')
+    ax[1].plot(prediction[0, :, 2], label='High')
+    ax[1].plot(prediction[0, :, 3], label='Close')
+    ax[0].legend()
+    ax[1].legend()
     plt.show()
 
 
 if __name__ == '__main__':
-    # main()
+    main()
     # model_prediction()
     model_visual()
-

@@ -39,13 +39,29 @@ def initialize(architecture, hidden_size, dense_size, dense_layers):
 
 
 def execute_action(state, hidden_state1, hidden_state2, epsilon, num_actions, Q_network):
-    sample = random()
+    try:
+        # check if state is a tensor and is 3D
+        if not isinstance(state, torch.Tensor) or state.dim() != 3:
+            # if not, convert to tensor and add a dimension
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
 
-    if sample > epsilon:
-        with torch.no_grad():
-            action, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
-            action = action.max(1)[1].view(1, 1)
+        sample = random()
+
+    except Exception as e:
+        print(f"An error occurred while generating random sample: {e}")
+        return None, None, None, None
+
+    try:
+        if sample > epsilon:
+            with torch.no_grad():
+                action, hidden_state1, hidden_state2 = Q_network(state, hidden_state1, hidden_state2)
+                action = action.max(1)[1].view(1, 1)
+                return action, hidden_state1, hidden_state2, epsilon
+        else:
+            action = torch.tensor([[randrange(num_actions)]], device=device, dtype=torch.long)
             return action, hidden_state1, hidden_state2, epsilon
-    else:
-        action = torch.tensor([[randrange(num_actions)]], device=device, dtype=torch.long)
-        return action, hidden_state1, hidden_state2, epsilon
+
+    except Exception as e:
+        print(f"An error occurred during action execution: {e}")
+        return None, None, None, None
+

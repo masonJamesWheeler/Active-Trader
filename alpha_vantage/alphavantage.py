@@ -160,6 +160,7 @@ class AlphaVantage(object):
                 url = '{}{}&datatype={}'.format(url, apikey_parameter, oformat)
             else:
                 url = '{}{}'.format(url, apikey_parameter)
+
             return self._handle_api_call(url), data_key, meta_data_key
         return _call_wrapper
 

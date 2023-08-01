@@ -168,8 +168,6 @@ class LiveStockEnvironment:
         Returns:
             tuple: The new state, the reward from the action, and a boolean indicating if trading is done.
         """
-        # start a timer to see how long this takes
-        start = time.time()
         if self.alpha_vantage_update():
             self._cancel_all_orders()
 
@@ -185,7 +183,6 @@ class LiveStockEnvironment:
             portfolioValue, next_state = self._compute_portfolio_value_and_next_state(order, outOfBounds)
 
             self.render()
-            print(f"Step took: {time.time() - start} seconds")
             return next_state, portfolioValue, False
 
     def _cancel_all_orders(self):

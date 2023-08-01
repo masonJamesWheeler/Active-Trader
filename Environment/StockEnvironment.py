@@ -184,7 +184,7 @@ class StockEnvironment:
         scaled_data_step = np.array(self.scaled_data[self.current_step])
         time_step = np.array(self.time_data[self.current_step])
         new_data = np.concatenate((scaled_data_step, time_step))
-        self.data_deque.append(new_data)
+        self.scaled_data_deque.append(new_data)
 
     # Returns the portfolio value if the agent buys and holds the stock from the beginning
     def get_buy_and_hold_portfolio_value(self):

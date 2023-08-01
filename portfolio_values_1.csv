@@ -1,0 +1,2 @@
+Step,Current Stock Price,Action,Buy and Hold Portfolio Value,DQN Agent Portfolio Value
+128,1.0130000114440918,tensor([[10]]),10130.0,10130.0

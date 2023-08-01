@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import lightning as L
-from Data.Data import get_and_process_data, get_all_months
+from Data.data import get_and_process_data, get_all_months
 from torch.utils.data import DataLoader
 from TiDE.data import SimpleDataset, collate_fn
 from lightning.pytorch.callbacks import ModelCheckpoint

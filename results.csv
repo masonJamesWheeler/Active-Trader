@@ -1,0 +1,2 @@
+num_layers,dense_size,dropout_rate,kernel_size,stride,padding,best_test_loss
+2,50,0.2,3,1,1,0.0027267015539109707
