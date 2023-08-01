@@ -8,8 +8,8 @@ import torch
 import torch.optim as optim
 from torch import device
 device = device("cuda:0" if torch.cuda.is_available() else "cpu")
-from Data.Data import get_and_process_data, get_all_months
-from Environment.StockEnvironment import StockEnvironment, ReplayMemory, epsilon_decay
+from Data.data import get_and_process_data, get_all_months
+from Environment.StockEnvironment import StockEnvironment, ReplayMemory, EpsilonGreedyStrategy
 from Environment.StockEnvironmentV2 import StockEnvironmentV2
 from Models.DQN_Agent import DQN, update_Q_values, MetaModel
 
@@ -25,20 +25,20 @@ def initialize():
     Initialize environment, DQN networks, optimizer and memory replay.
     """
     architecture = "RNN"
-    starting_cash = 10000
+    starting_cash = 0
     starting_shares = 10000
     window_size = 128
     lookback_period = 400
     price_column = 3
     dense_size = 128
     dense_layers = 2
-    feature_size = 5
+    feature_size = 35
     hidden_size = 128
     num_actions = 11
     dropout_rate = 0.2
 
-    env = StockEnvironmentV2(starting_cash=starting_cash, starting_shares=starting_shares, window_size=window_size,
-                             lookback_period=lookback_period, feature_size=feature_size, price_column=price_column, data=[], scaled_data=[])
+    env = StockEnvironment(starting_cash=starting_cash, starting_shares=starting_shares, window_size=window_size,
+                           feature_size=feature_size, price_column=price_column, data=[], scaled_data=[])
 
     memoryReplay = ReplayMemory(100000)
 
@@ -92,48 +92,41 @@ def main_loop(ticker, all_months, window_size=128, C=5, BATCH_SIZE=512, architec
 
     target_network = target_network.to(device)
 
-    # Initialize the meta-model
-    meta_model = MetaModel(1, 10, 1, window_size)
-    meta_optimizer = torch.optim.Adam(meta_model.parameters())
-
     rewards = deque(maxlen=window_size)
 
     steps_done = 0
     iterator = 0
+
+    epsilon_strategy = EpsilonGreedyStrategy(start=0.20, end=0.01, decay=0.0001)
 
     # Loop through all tickers
     for month in all_months:
         iterator += 1
         # Retrieve and process data for the current ticker
         if iterator == 1:
-            env.data, env.scaled_data, scaler = get_and_process_data(ticker, interval, window_size, month)
+            env.data, env.scaled_data, env.time_data, scaler = get_and_process_data(ticker, interval, window_size, month)
+            env.initialize_state()
             state = env.reset()
             hidden_state1, hidden_state2 = Q_network.init_hidden(1)
         else:
-            new_data, new_scaled_data, scaler = get_and_process_data(ticker, interval, window_size, month)
+            new_data, new_scaled_data, time_data, scaler = get_and_process_data(ticker, interval, window_size, month)
             print("RESET")
-            state = env.soft_reset(new_data, new_scaled_data)
-            env.current_step = 0
+            state = env.soft_reset(new_data, new_scaled_data, time_data)
 
         done = False
-        epsilon = 1.0
         # Loop until the episode is done
         while not done:
+
             steps_done += 1
+
+            epsilon = epsilon_strategy.get_exploration_rate(steps_done)
+
             # Execute an action and get the next state, reward, and done flag
             action, hidden_state1, hidden_state2, epsilon = execute_action(state, hidden_state1, hidden_state2, epsilon,
                                                                            num_actions, Q_network)
-            next_state, reward, done = env.step(action)
+            next_state, reward, done = env.step(action, epsilon)
 
             rewards.append(reward)
-
-            if len(rewards) == window_size:
-                meta_input_seq = torch.tensor(np.array(rewards), dtype=torch.float32)
-                epsilon = meta_model(meta_input_seq)
-                meta_optimizer.zero_grad()
-                loss = -reward * epsilon
-                loss.backward()
-                meta_optimizer.step()
 
             # Add the transition to the memory replay
             transition = Transition(state, hidden_state1, hidden_state2, action, next_state, reward, hidden_state1,
@@ -162,13 +155,11 @@ def main_loop(ticker, all_months, window_size=128, C=5, BATCH_SIZE=512, architec
 
         memoryReplay.save_memory(ticker)
 
-        meta_model.save_weights(1, 128, 1, window_size)
-
 
 if __name__ == "__main__":
     ticker = "AAPL"
-    start_year = 2020
-    start_month = 6
+    start_year = 2012
+    start_month = 4
     end_year = 2023
     end_month = 7
 
